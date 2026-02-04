@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Back button -->
+    <div class="col-12">
+        <a href="/radar" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Back to Radar
+        </a>
+    </div>
+
+    <!-- Market Info -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body" id="market-info">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Score Breakdown -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Score Breakdown</h5>
+            </div>
+            <div class="card-body" id="score-breakdown">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Current Prices -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-currency-pound me-2"></i>Current Prices</h5>
+            </div>
+            <div class="card-body" id="current-prices">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile History -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Profile History</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" id="profile-history">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const marketId = {{ market_id }};
+
+    async function loadMarketData() {
+        try {
+            // Load market info
+            const marketRes = await fetch(`/api/markets/${marketId}`);
+            const market = await marketRes.json();
+
+            document.getElementById('market-info').innerHTML = `
+                <div class="row">
+                    <div class="col-md-8">
+                        <h3>${market.name}</h3>
+                        <p class="text-muted mb-2">
+                            <strong>${market.event_name}</strong><br>
+                            ${market.competition_name}
+                        </p>
+                        <p class="mb-0">
+                            <span class="badge bg-${market.status === 'OPEN' ? 'success' : 'secondary'}">${market.status}</span>
+                            <span class="badge bg-info">${market.market_type}</span>
+                            <span class="badge bg-secondary">${market.snapshot_count} snapshots</span>
+                        </p>
+                    </div>
+                    <div class="col-md-4 text-md-end">
+                        <p class="text-muted mb-1">Scheduled Start</p>
+                        <h5>${new Date(market.scheduled_start).toLocaleString()}</h5>
+                        <p class="text-muted mb-1 mt-2">Total Matched</p>
+                        <h5>£${market.total_matched.toLocaleString()}</h5>
+                    </div>
+                </div>
+            `;
+
+            // Load current prices from latest snapshot
+            if (market.latest_snapshot && market.latest_snapshot.runners) {
+                let pricesHtml = '<div class="row g-3">';
+                for (const runner of market.latest_snapshot.runners) {
+                    const matchingRunner = market.runners.find(r => r.betfair_id === runner.runner_id);
+                    const runnerName = matchingRunner ? matchingRunner.name : `Runner ${runner.runner_id}`;
+
+                    const bestBack = runner.back && runner.back.length > 0 ? runner.back[0] : null;
+                    const bestLay = runner.lay && runner.lay.length > 0 ? runner.lay[0] : null;
+
+                    pricesHtml += `
+                        <div class="col-md-4">
+                            <div class="border rounded p-2" style="border-color: #334155 !important;">
+                                <strong>${runnerName}</strong>
+                                <div class="d-flex justify-content-between mt-2">
+                                    <div class="text-center flex-fill me-1" style="background: #1565c0; border-radius: 4px; padding: 4px;">
+                                        <small class="d-block text-muted">Back</small>
+                                        <strong>${bestBack ? bestBack.price.toFixed(2) : '-'}</strong>
+                                        <small class="d-block">£${bestBack ? bestBack.size.toFixed(0) : '-'}</small>
+                                    </div>
+                                    <div class="text-center flex-fill ms-1" style="background: #e91e63; border-radius: 4px; padding: 4px;">
+                                        <small class="d-block text-muted">Lay</small>
+                                        <strong>${bestLay ? bestLay.price.toFixed(2) : '-'}</strong>
+                                        <small class="d-block">£${bestLay ? bestLay.size.toFixed(0) : '-'}</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                pricesHtml += '</div>';
+                document.getElementById('current-prices').innerHTML = pricesHtml;
+            } else {
+                document.getElementById('current-prices').innerHTML = '<p class="text-muted">No price data available</p>';
+            }
+
+            // Load profiles
+            const profilesRes = await fetch(`/api/markets/${marketId}/profiles`);
+            const profiles = await profilesRes.json();
+
+            if (profiles.profiles && profiles.profiles.length > 0) {
+                let profileHtml = '<table class="table table-sm mb-0"><thead><tr>' +
+                    '<th>Date</th><th>Bucket</th><th>Spread</th><th>Vol</th><th>Update</th><th>Depth</th><th>Volume</th><th>Snaps</th>' +
+                    '</tr></thead><tbody>';
+
+                for (const p of profiles.profiles) {
+                    profileHtml += `
+                        <tr>
+                            <td>${p.profile_date}</td>
+                            <td><span class="badge bg-secondary">${p.time_bucket}</span></td>
+                            <td>${p.avg_spread_ticks.toFixed(2)}</td>
+                            <td>${(p.price_volatility * 100).toFixed(2)}%</td>
+                            <td>${p.update_rate_per_min.toFixed(2)}/min</td>
+                            <td>£${p.avg_depth_best.toFixed(0)}</td>
+                            <td>£${p.total_matched_volume.toLocaleString()}</td>
+                            <td>${p.snapshot_count}</td>
+                        </tr>
+                    `;
+                }
+
+                profileHtml += '</tbody></table>';
+                document.getElementById('profile-history').innerHTML = profileHtml;
+            } else {
+                document.getElementById('profile-history').innerHTML = '<p class="text-muted text-center py-4">No profiles yet</p>';
+            }
+
+            // Load score breakdown from latest score
+            const scoresRes = await fetch(`/api/scores?limit=1`);
+            const scores = await scoresRes.json();
+
+            // Find score for this market
+            const marketScore = scores.items.find(s => s.market_id === marketId);
+
+            if (marketScore) {
+                const components = [
+                    { name: 'Spread', value: marketScore.spread_score, color: '#6366f1' },
+                    { name: 'Volatility', value: marketScore.volatility_score, color: '#8b5cf6' },
+                    { name: 'Update Rate', value: marketScore.update_score, color: '#a855f7' },
+                    { name: 'Depth', value: marketScore.depth_score, color: '#d946ef' },
+                    { name: 'Volume Penalty', value: -marketScore.volume_penalty, color: '#ef4444' },
+                ];
+
+                let breakdownHtml = '';
+                for (const comp of components) {
+                    const isPenalty = comp.name === 'Volume Penalty';
+                    breakdownHtml += `
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>${comp.name}</span>
+                                <strong class="${isPenalty ? 'text-danger' : ''}">${Math.abs(comp.value).toFixed(1)}</strong>
+                            </div>
+                            <div class="progress" style="height: 12px; background: #334155;">
+                                <div class="progress-bar" style="width: ${Math.abs(comp.value)}%; background: ${comp.color};"></div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                const scoreClass = marketScore.total_score >= 70 ? 'text-success' : marketScore.total_score >= 50 ? 'text-warning' : 'text-danger';
+                breakdownHtml += `
+                    <hr style="border-color: #334155;">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="fs-5">Total Score</span>
+                        <span class="fs-3 ${scoreClass} fw-bold">${marketScore.total_score.toFixed(1)}</span>
+                    </div>
+                `;
+
+                document.getElementById('score-breakdown').innerHTML = breakdownHtml;
+            } else {
+                document.getElementById('score-breakdown').innerHTML = '<p class="text-muted">No score available for this market</p>';
+            }
+
+        } catch (e) {
+            console.error('Error loading market data:', e);
+            document.getElementById('market-info').innerHTML = '<div class="alert alert-danger">Failed to load market data</div>';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadMarketData);
+</script>
+{% endblock %}

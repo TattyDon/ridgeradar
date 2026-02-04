@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- System Health -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-heart-pulse me-2"></i>System Health</h5>
+                <button class="btn btn-sm btn-outline-secondary"
+                        hx-get="/ready"
+                        hx-target="#health-details"
+                        hx-indicator="#health-loading">
+                    <span id="health-loading" class="htmx-indicator spinner-border spinner-border-sm me-1"></span>
+                    Refresh
+                </button>
+            </div>
+            <div class="card-body" id="health-details" hx-get="/ready" hx-trigger="load" hx-swap="innerHTML">
+                <div class="text-center py-3">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Markets by Score -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-star me-2"></i>Top Markets by Score</h5>
+                <span class="badge bg-primary">Live</span>
+            </div>
+            <div class="card-body p-0">
+                <div id="top-markets" hx-get="/api/scores/top?limit=10" hx-trigger="load, every 60s" hx-swap="innerHTML">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>Score Distribution</h5>
+            </div>
+            <div class="card-body" id="score-stats" hx-get="/api/scores/stats" hx-trigger="load, every 60s" hx-swap="innerHTML">
+                <div class="text-center py-3">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>About RidgeRadar</h5>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-2">
+                    RidgeRadar identifies structural inefficiencies in betting markets by analyzing:
+                </p>
+                <ul class="small text-muted mb-3">
+                    <li>Spread width (moderate = exploitable)</li>
+                    <li>Price volatility (opportunity)</li>
+                    <li>Market depth (liquidity)</li>
+                    <li>Volume <strong class="text-warning">(penalty)</strong></li>
+                </ul>
+                <div class="alert alert-warning small mb-0 py-2">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    <strong>Shadow Mode:</strong> Measurement only, no betting.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Handle health check response
+    htmx.on('#health-details', 'htmx:afterRequest', function(evt) {
+        try {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            let html = '<div class="row g-3">';
+
+            for (const [name, check] of Object.entries(data.checks)) {
+                const statusClass = check.status === 'ok' ? 'success' :
+                                   check.status === 'warning' ? 'warning' : 'danger';
+                const icon = check.status === 'ok' ? 'check-circle-fill' :
+                            check.status === 'warning' ? 'exclamation-triangle-fill' : 'x-circle-fill';
+
+                html += `
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-${icon} text-${statusClass} me-2 fs-4"></i>
+                            <div>
+                                <strong class="text-capitalize">${name}</strong>
+                                <br><small class="text-muted">${check.message || check.status}</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            evt.detail.target.innerHTML = html;
+        } catch (e) {
+            evt.detail.target.innerHTML = '<div class="alert alert-danger mb-0">Failed to load health status</div>';
+        }
+    });
+
+    // Handle top markets response
+    htmx.on('#top-markets', 'htmx:afterRequest', function(evt) {
+        try {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+
+            if (!data.items || data.items.length === 0) {
+                evt.detail.target.innerHTML = '<div class="text-center text-muted py-4">No scored markets yet</div>';
+                return;
+            }
+
+            let html = '<table class="table table-hover mb-0"><thead><tr>' +
+                       '<th>Market</th><th>Competition</th><th>Bucket</th><th>Score</th></tr></thead><tbody>';
+
+            for (const item of data.items) {
+                const scoreClass = item.score >= 70 ? 'score-high' : item.score >= 50 ? 'score-medium' : 'score-low';
+
+                html += `
+                    <tr onclick="window.location='/market/${item.market_id}'" style="cursor: pointer;">
+                        <td>
+                            <strong>${item.market_name}</strong>
+                            <br><small class="text-muted">${item.event_name}</small>
+                        </td>
+                        <td><small>${item.competition_name}</small></td>
+                        <td><span class="badge bg-secondary">${item.time_bucket}</span></td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <div class="score-bar me-2" style="width: 60px;">
+                                    <div class="score-bar-fill ${scoreClass}" style="width: ${item.score}%;"></div>
+                                </div>
+                                <strong>${item.score.toFixed(1)}</strong>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }
+
+            html += '</tbody></table>';
+            evt.detail.target.innerHTML = html;
+        } catch (e) {
+            evt.detail.target.innerHTML = '<div class="alert alert-danger mb-0 mx-3">Failed to load markets</div>';
+        }
+    });
+
+    // Handle score stats response
+    htmx.on('#score-stats', 'htmx:afterRequest', function(evt) {
+        try {
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            const dist = data.distribution;
+            const total = (dist.high_70_plus || 0) + (dist.medium_50_70 || 0) + (dist.low_under_50 || 0);
+
+            let html = `
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-success">High (70+)</span>
+                        <strong>${dist.high_70_plus || 0}</strong>
+                    </div>
+                    <div class="progress" style="height: 8px; background: #334155;">
+                        <div class="progress-bar bg-success" style="width: ${total ? (dist.high_70_plus / total * 100) : 0}%"></div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-warning">Medium (50-70)</span>
+                        <strong>${dist.medium_50_70 || 0}</strong>
+                    </div>
+                    <div class="progress" style="height: 8px; background: #334155;">
+                        <div class="progress-bar bg-warning" style="width: ${total ? (dist.medium_50_70 / total * 100) : 0}%"></div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-danger">Low (<50)</span>
+                        <strong>${dist.low_under_50 || 0}</strong>
+                    </div>
+                    <div class="progress" style="height: 8px; background: #334155;">
+                        <div class="progress-bar bg-danger" style="width: ${total ? (dist.low_under_50 / total * 100) : 0}%"></div>
+                    </div>
+                </div>
+                <hr class="my-3" style="border-color: #334155;">
+                <div class="d-flex justify-content-between">
+                    <span>Total Scored</span>
+                    <strong class="text-info">${data.total_scores || 0}</strong>
+                </div>
+            `;
+
+            evt.detail.target.innerHTML = html;
+        } catch (e) {
+            evt.detail.target.innerHTML = '<div class="alert alert-danger mb-0">Failed to load stats</div>';
+        }
+    });
+</script>
+{% endblock %}

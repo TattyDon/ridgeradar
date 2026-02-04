@@ -1,0 +1,212 @@
+# RidgeRadar Default Configuration
+# Version: 2.0.0
+#
+# PHILOSOPHY: Let the scoring engine decide what's exploitable.
+# - Ingest broadly, filter by score
+# - High volume markets will naturally score LOW (volume penalty)
+# - We don't need to guess which leagues are "good" - the data tells us
+#
+# The scoring engine penalises:
+# - High volume (efficient market)
+# - Tight spreads (no edge)
+# - Very high depth (professional saturation)
+#
+# So Premier League matches score LOW automatically, no need to exclude them.
+
+global:
+  # Enabled sports for tracking
+  enabled_sports:
+    - soccer
+    - tennis
+
+  # Hard exclusions - only things that would waste API quota
+  # These are NOT filtered by score, they're never ingested at all
+  hard_exclusions:
+    # Sports we don't want at all (saves API calls)
+    sports:
+      - basketball
+      - american_football
+      - golf
+      - cricket
+      - rugby
+      - baseball
+      - ice_hockey
+      - darts
+      - snooker
+      - boxing
+      - mma
+    # Competition patterns to skip (international tournaments with unpredictable scheduling)
+    competition_patterns:
+      - "Friendly"
+      - "U21"
+      - "U19"
+      - "U17"
+      - "Reserves"
+      - "Women"  # Different liquidity profile, could enable later
+      - "Youth"
+      - "Amateur"
+
+  # Market types to track
+  enabled_market_types:
+    - MATCH_ODDS
+    - OVER_UNDER_25
+    - BOTH_TEAMS_TO_SCORE
+
+  # Ingestion settings
+  snapshot_interval_seconds: 60
+  ladder_depth: 3  # Price levels per side
+  max_markets_per_snapshot: 40  # Betfair API limit
+  discovery_interval_minutes: 15
+  lookahead_hours: 72  # How far ahead to fetch events
+  ignore_inplay: true  # Don't capture in-play markets (Phase 1)
+
+  # Universe limits
+  max_markets_active: 500
+  max_events_per_competition: 50
+
+# Scoring configuration
+# This is what ACTUALLY filters markets - not name matching
+scoring:
+  version: "2.0.0"
+
+  # Minimum score to surface in UI (markets below this are captured but hidden)
+  min_display_score: 40
+
+  # Minimum score to consider "interesting" for alerts
+  interesting_threshold: 55
+
+  # Component weights (must sum to ~1.0)
+  weights:
+    spread: 0.25       # Wider spread = more room for edge
+    volatility: 0.25   # Price movement = opportunity
+    update_rate: 0.15  # Active market = price discovery
+    depth: 0.20        # Need liquidity to trade
+    volume_penalty: 0.15  # HIGH VOLUME = PENALTY (efficient market)
+
+  # Normalisation parameters for each component
+  normalisation:
+    spread:
+      min_ticks: 2       # Below 2 ticks = very efficient, score low
+      sweet_spot_max: 8  # 3-8 ticks = exploitable
+      max_ticks: 12      # Above 12 = too illiquid
+    volatility:
+      target: 0.04       # Optimal volatility (4% price movement)
+      max: 0.12          # Above 12% = too chaotic
+    update_rate:
+      min: 0.2           # Minimum updates per minute
+      max: 3.0           # Diminishing returns above 3/min
+    depth:
+      min: 150           # Need at least £150 to be tradeable
+      optimal: 1500      # Sweet spot around £1500
+      max: 8000          # Very high depth suggests efficiency
+    volume:
+      # CRITICAL: This is a PENALTY function
+      # This is what makes EPL/UCL score LOW automatically
+      threshold: 30000   # Below £30k = no penalty
+      max: 200000        # Above £200k = maximum penalty
+      hard_cap: 500000   # Above £500k = instant disqualify (score = 0)
+
+  # Hard guards - markets failing these get score 0
+  guards:
+    absolute_min_depth: 100       # £100 minimum
+    absolute_max_spread_ticks: 20 # 20 ticks max
+    min_snapshots_required: 5     # Need data history
+    min_update_rate: 0.1          # Must have some activity
+
+# Competition learning - track which competitions consistently produce good scores
+# This is LEARNED from data, not pre-configured
+competition_tracking:
+  # Minimum markets scored before we trust competition-level stats
+  min_markets_for_stats: 10
+  # Rolling window for competition score averaging
+  rolling_window_days: 30
+  # If a competition's average score is below this, reduce snapshot frequency
+  low_value_threshold: 35
+  # If above this, increase priority
+  high_value_threshold: 60
+
+# Time buckets for profiling
+time_buckets:
+  - name: "72h+"
+    min_hours: 72
+    max_hours: null
+  - name: "24-72h"
+    min_hours: 24
+    max_hours: 72
+  - name: "6-24h"
+    min_hours: 6
+    max_hours: 24
+  - name: "2-6h"
+    min_hours: 2
+    max_hours: 6
+  - name: "<2h"
+    min_hours: 0
+    max_hours: 2
+
+# Odds bands for analysis
+odds_bands:
+  - name: "Heavy Fav"
+    min: 1.01
+    max: 1.50
+  - name: "Favourite"
+    min: 1.50
+    max: 2.00
+  - name: "Even"
+    min: 2.00
+    max: 3.00
+  - name: "Underdog"
+    min: 3.00
+    max: 5.00
+  - name: "Longshot"
+    min: 5.00
+    max: 1000.00
+
+# Betfair tick increment table
+tick_increments:
+  - max_price: 2.00
+    increment: 0.01
+  - max_price: 3.00
+    increment: 0.02
+  - max_price: 4.00
+    increment: 0.05
+  - max_price: 6.00
+    increment: 0.10
+  - max_price: 10.00
+    increment: 0.20
+  - max_price: 20.00
+    increment: 0.50
+  - max_price: 30.00
+    increment: 1.00
+  - max_price: 50.00
+    increment: 2.00
+  - max_price: 100.00
+    increment: 5.00
+  - max_price: 1000.00
+    increment: 10.00
+
+# Celery task schedules
+celery:
+  task_schedules:
+    discover_markets:
+      schedule: 900  # Every 15 minutes
+      timeout: 300   # 5 minute timeout
+    capture_snapshots:
+      schedule: 60   # Every 60 seconds
+      timeout: 45    # 45 second timeout
+    compute_daily_profiles:
+      schedule: 3600 # Every hour
+      timeout: 600   # 10 minute timeout
+    score_markets:
+      schedule: 300  # Every 5 minutes
+      timeout: 180   # 3 minute timeout
+    aggregate_competition_stats:
+      schedule: 3600 # Every hour
+      timeout: 300   # 5 minute timeout
+
+# Alerting thresholds
+alerting:
+  discovery_staleness_minutes: 30
+  snapshot_staleness_minutes: 5
+  queue_depth_warning: 1000
+  error_rate_warning: 0.05
+  error_rate_critical: 0.20

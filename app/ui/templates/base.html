@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ title }} - RidgeRadar{% endblock %}</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --bs-primary: #6366f1;
+            --bs-success: #22c55e;
+            --bs-warning: #f59e0b;
+            --bs-danger: #ef4444;
+        }
+
+        body {
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+
+        .navbar {
+            background-color: #1e293b !important;
+            border-bottom: 1px solid #334155;
+        }
+
+        .card {
+            background-color: #1e293b;
+            border: 1px solid #334155;
+        }
+
+        .table {
+            color: #e2e8f0;
+        }
+
+        .table-hover tbody tr:hover {
+            background-color: #334155;
+        }
+
+        .badge-primary { background-color: #6366f1; }
+        .badge-secondary { background-color: #64748b; }
+        .badge-success { background-color: #22c55e; }
+        .badge-warning { background-color: #f59e0b; color: #000; }
+        .badge-danger { background-color: #ef4444; }
+
+        .score-bar {
+            height: 8px;
+            border-radius: 4px;
+            background-color: #334155;
+        }
+
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .score-high { background-color: #22c55e; }
+        .score-medium { background-color: #f59e0b; }
+        .score-low { background-color: #ef4444; }
+
+        .tier-primary { color: #22c55e; }
+        .tier-secondary { color: #64748b; }
+
+        .htmx-indicator {
+            display: none;
+        }
+
+        .htmx-request .htmx-indicator {
+            display: inline-block;
+        }
+
+        .htmx-request.htmx-indicator {
+            display: inline-block;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-healthy { background-color: #22c55e; }
+        .status-warning { background-color: #f59e0b; }
+        .status-error { background-color: #ef4444; }
+    </style>
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/">
+                <i class="bi bi-radar me-2"></i>RidgeRadar
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link {% if title == 'Dashboard' %}active{% endif %}" href="/">
+                            <i class="bi bi-speedometer2 me-1"></i>Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if title == 'Market Radar' %}active{% endif %}" href="/radar">
+                            <i class="bi bi-crosshair me-1"></i>Radar
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if title == 'Competitions' %}active{% endif %}" href="/competitions">
+                            <i class="bi bi-trophy me-1"></i>Competitions
+                        </a>
+                    </li>
+                </ul>
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-secondary me-2">Shadow Mode</span>
+                    <span id="health-status"
+                          hx-get="/health"
+                          hx-trigger="load, every 30s"
+                          hx-swap="innerHTML">
+                        <span class="status-indicator status-warning"></span>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container-fluid py-4">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="container-fluid py-3 text-center text-muted border-top" style="border-color: #334155 !important;">
+        <small>RidgeRadar v0.1.0 | Phase 1: Shadow Mode | Secondary League Focus</small>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <script>
+        // Health status handler
+        htmx.on('#health-status', 'htmx:afterRequest', function(evt) {
+            const status = JSON.parse(evt.detail.xhr.responseText);
+            const indicator = document.querySelector('#health-status');
+            if (status.status === 'healthy') {
+                indicator.innerHTML = '<span class="status-indicator status-healthy" title="System Healthy"></span>';
+            } else {
+                indicator.innerHTML = '<span class="status-indicator status-error" title="System Unhealthy"></span>';
+            }
+        });
+
+        // Score formatting helper
+        function formatScore(score) {
+            if (score >= 70) return 'score-high';
+            if (score >= 50) return 'score-medium';
+            return 'score-low';
+        }
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

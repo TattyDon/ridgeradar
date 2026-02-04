@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-trophy me-2"></i>Competitions by Average Score</h5>
+                <div>
+                    <span class="badge bg-success me-2">High Value (55+)</span>
+                    <span class="badge bg-warning text-dark me-2">Medium (40-55)</span>
+                    <span class="badge bg-secondary">Low (&lt;40)</span>
+                </div>
+            </div>
+            <div class="card-body" id="competitions-list">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Philosophy Explanation -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightbulb me-2"></i>How It Works</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <h6 class="text-success"><i class="bi bi-graph-up me-2"></i>Score-Based Filtering</h6>
+                        <p class="small text-muted">
+                            We ingest ALL competitions and let the scoring engine decide what's exploitable.
+                            High volume + tight spreads = low score automatically.
+                            No need to pre-judge leagues by name.
+                        </p>
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="text-warning"><i class="bi bi-bar-chart me-2"></i>Volume Penalty</h6>
+                        <p class="small text-muted">
+                            Markets with high matched volume (£200k+) receive a PENALTY.
+                            This automatically deprioritises efficient markets like EPL/UCL
+                            without needing explicit exclusions.
+                        </p>
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="text-info"><i class="bi bi-cpu me-2"></i>Competition Learning</h6>
+                        <p class="small text-muted">
+                            Over time, we track which competitions consistently produce
+                            high-scoring markets. This data helps optimise snapshot frequency
+                            and identify the best opportunities.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    async function loadCompetitions() {
+        try {
+            const res = await fetch('/api/competitions/rankings');
+            const rankings = await res.json();
+
+            if (rankings.length === 0) {
+                document.getElementById('competitions-list').innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        No competition statistics yet. Scores will appear after markets have been profiled and scored.
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '<div class="table-responsive"><table class="table table-hover">';
+            html += `
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Competition</th>
+                        <th>Country</th>
+                        <th>Avg Score</th>
+                        <th>Max Score</th>
+                        <th>Markets Scored</th>
+                        <th>High Value (55+)</th>
+                        <th>Excellent (70+)</th>
+                    </tr>
+                </thead>
+                <tbody>
+            `;
+
+            rankings.forEach((comp, index) => {
+                const scoreClass = comp.avg_score >= 55 ? 'success' :
+                                   comp.avg_score >= 40 ? 'warning' : 'secondary';
+                const scoreTextClass = comp.avg_score >= 40 && comp.avg_score < 55 ? 'text-dark' : '';
+
+                html += `
+                    <tr>
+                        <td><strong>#${index + 1}</strong></td>
+                        <td>${comp.name}</td>
+                        <td><span class="badge bg-dark">${comp.country_code || 'N/A'}</span></td>
+                        <td>
+                            <span class="badge bg-${scoreClass} ${scoreTextClass}">
+                                ${comp.avg_score.toFixed(1)}
+                            </span>
+                        </td>
+                        <td>${comp.max_score.toFixed(1)}</td>
+                        <td>${comp.total_markets}</td>
+                        <td>
+                            ${comp.markets_above_55 > 0 ?
+                                `<span class="badge bg-success">${comp.markets_above_55}</span>` :
+                                '<span class="text-muted">0</span>'}
+                        </td>
+                        <td>
+                            ${comp.markets_above_70 > 0 ?
+                                `<span class="badge bg-primary">${comp.markets_above_70}</span>` :
+                                '<span class="text-muted">0</span>'}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table></div>';
+
+            // Add summary stats
+            const highValue = rankings.filter(c => c.avg_score >= 55).length;
+            const medium = rankings.filter(c => c.avg_score >= 40 && c.avg_score < 55).length;
+            const low = rankings.filter(c => c.avg_score < 40).length;
+
+            html = `
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <div class="border rounded p-3 text-center" style="border-color: #22c55e !important;">
+                            <h3 class="text-success mb-0">${highValue}</h3>
+                            <small class="text-muted">High Value Competitions</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-3 text-center" style="border-color: #f59e0b !important;">
+                            <h3 class="text-warning mb-0">${medium}</h3>
+                            <small class="text-muted">Medium Value</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-3 text-center" style="border-color: #64748b !important;">
+                            <h3 class="text-secondary mb-0">${low}</h3>
+                            <small class="text-muted">Low Value (penalised by volume)</small>
+                        </div>
+                    </div>
+                </div>
+            ` + html;
+
+            document.getElementById('competitions-list').innerHTML = html;
+
+        } catch (e) {
+            document.getElementById('competitions-list').innerHTML = `
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    Competition rankings not available yet. Make sure the scoring task has run.
+                </div>
+            `;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadCompetitions);
+</script>
+{% endblock %}

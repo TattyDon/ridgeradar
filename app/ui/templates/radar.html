@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Filters -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body py-2">
+                <form id="filter-form" class="row g-2 align-items-center">
+                    <div class="col-auto">
+                        <label class="col-form-label">Min Score:</label>
+                    </div>
+                    <div class="col-auto">
+                        <input type="number" class="form-control form-control-sm" id="filter-score" name="min_score" value="40" min="0" max="100" step="5" style="width: 80px;">
+                    </div>
+                    <div class="col-auto">
+                        <label class="col-form-label">Time Bucket:</label>
+                    </div>
+                    <div class="col-auto">
+                        <select class="form-select form-select-sm" id="filter-bucket" name="time_bucket">
+                            <option value="">All</option>
+                            <option value="<2h">&lt;2h</option>
+                            <option value="2-6h">2-6h</option>
+                            <option value="6-24h">6-24h</option>
+                            <option value="24-72h">24-72h</option>
+                            <option value="72h+">72h+</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="col-form-label">Odds Band:</label>
+                    </div>
+                    <div class="col-auto">
+                        <select class="form-select form-select-sm" id="filter-odds" name="odds_band">
+                            <option value="">All</option>
+                            <option value="Heavy Fav">Heavy Fav</option>
+                            <option value="Favourite">Favourite</option>
+                            <option value="Even">Even</option>
+                            <option value="Underdog">Underdog</option>
+                            <option value="Longshot">Longshot</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-primary btn-sm" id="apply-filters">
+                            <i class="bi bi-funnel me-1"></i>Apply
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Table -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-crosshair me-2"></i>Market Radar</h5>
+                <span id="result-count" class="badge bg-secondary">Loading...</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Competition</th>
+                                <th>Event</th>
+                                <th>Market</th>
+                                <th>Bucket</th>
+                                <th>Odds</th>
+                                <th>Spread</th>
+                                <th>Vol</th>
+                                <th>Update</th>
+                                <th>Depth</th>
+                                <th>Vol Pen</th>
+                                <th>Score</th>
+                            </tr>
+                        </thead>
+                        <tbody id="radar-results">
+                            <tr>
+                                <td colspan="12" class="text-center py-4">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    async function loadRadarData() {
+        const minScore = document.getElementById('filter-score').value;
+        const timeBucket = document.getElementById('filter-bucket').value;
+        const oddsBand = document.getElementById('filter-odds').value;
+
+        const params = new URLSearchParams();
+        if (minScore) params.append('min_score', minScore);
+        if (timeBucket) params.append('time_bucket', timeBucket);
+        if (oddsBand) params.append('odds_band', oddsBand);
+        params.append('limit', '100');
+
+        const tbody = document.getElementById('radar-results');
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center py-4"><div class="spinner-border text-primary"></div></td></tr>';
+
+        try {
+            const response = await fetch('/api/scores?' + params.toString());
+            const data = await response.json();
+
+            document.getElementById('result-count').textContent = `${data.total} results`;
+
+            if (!data.items || data.items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">No markets match filters</td></tr>';
+                return;
+            }
+
+            let html = '';
+            for (const item of data.items) {
+                const scoreClass = item.total_score >= 70 ? 'score-high' : item.total_score >= 50 ? 'score-medium' : 'score-low';
+
+                html += `
+                    <tr onclick="window.location='/market/${item.market_id}'" style="cursor: pointer;">
+                        <td><small>${item.competition_name}</small></td>
+                        <td><small>${item.event_name}</small></td>
+                        <td><strong>${item.market_name}</strong></td>
+                        <td><span class="badge bg-secondary">${item.time_bucket}</span></td>
+                        <td><small>${item.odds_band}</small></td>
+                        <td>${item.spread_score.toFixed(0)}</td>
+                        <td>${item.volatility_score.toFixed(0)}</td>
+                        <td>${item.update_score.toFixed(0)}</td>
+                        <td>${item.depth_score.toFixed(0)}</td>
+                        <td class="text-danger">${item.volume_penalty.toFixed(0)}</td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <div class="score-bar me-2" style="width: 50px;">
+                                    <div class="score-bar-fill ${scoreClass}" style="width: ${item.total_score}%;"></div>
+                                </div>
+                                <strong>${item.total_score.toFixed(1)}</strong>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }
+
+            tbody.innerHTML = html;
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-danger py-4">Failed to load data</td></tr>';
+        }
+    }
+
+    // Initial load
+    document.addEventListener('DOMContentLoaded', loadRadarData);
+
+    // Filter button
+    document.getElementById('apply-filters').addEventListener('click', loadRadarData);
+
+    // Auto-refresh every 60 seconds
+    setInterval(loadRadarData, 60000);
+</script>
+{% endblock %}
