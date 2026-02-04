@@ -89,8 +89,8 @@ services:
       - POSTGRES_DB=ridgeradar
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
+    # ports:
+    #   - "5433:5432"  # Disabled - not needed, app connects internally
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ridgeradar -d ridgeradar"]
       interval: 10s
