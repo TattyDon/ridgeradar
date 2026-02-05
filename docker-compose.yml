@@ -22,7 +22,6 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ./app:/app/app:ro
-      - ./alembic:/app/alembic:ro
       - ./betfair_certs:/app/certs:ro
     depends_on:
       db:
@@ -55,7 +54,6 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ./app:/app/app:ro
-      - ./alembic:/app/alembic:ro
       - ./betfair_certs:/app/certs:ro
     depends_on:
       db:
@@ -77,7 +75,6 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ./app:/app/app:ro
-      - ./alembic:/app/alembic:ro
     depends_on:
       - redis
       - celery
