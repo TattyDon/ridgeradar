@@ -1,0 +1,475 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+    .paper-badge {
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+    }
+    .stat-card {
+        text-align: center;
+        padding: 1rem;
+    }
+    .stat-number {
+        font-size: 2rem;
+        font-weight: bold;
+    }
+    .stat-label {
+        color: #94a3b8;
+        font-size: 0.875rem;
+    }
+    .pnl-positive { color: #22c55e; }
+    .pnl-negative { color: #ef4444; }
+    .clv-positive { color: #22c55e; }
+    .clv-negative { color: #ef4444; }
+    .phase-indicator {
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        font-weight: 500;
+    }
+    .phase-collecting {
+        background: linear-gradient(135deg, #334155, #1e293b);
+        border: 1px solid #475569;
+    }
+    .phase-shadow {
+        background: linear-gradient(135deg, #854d0e, #713f12);
+        border: 1px solid #a16207;
+    }
+    .threshold-bar {
+        height: 8px;
+        background: #334155;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    .threshold-fill {
+        height: 100%;
+        transition: width 0.5s ease;
+    }
+    .disclaimer {
+        background: rgba(234, 179, 8, 0.1);
+        border: 1px solid rgba(234, 179, 8, 0.3);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        font-size: 0.875rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Page Header with Phase Status -->
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h4 class="mb-0">
+                    <i class="bi bi-pencil-square me-2"></i>Shadow Trading
+                    <span class="badge bg-warning text-dark ms-2 paper-badge">
+                        <i class="bi bi-file-earmark-text me-1"></i>PAPER MODE
+                    </span>
+                </h4>
+                <p class="text-muted mb-0">Phase 2: Hypothetical trading decisions for strategy validation</p>
+            </div>
+            <div id="phase-status-container">
+                <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Safety Disclaimer -->
+    <div class="col-12">
+        <div class="disclaimer">
+            <i class="bi bi-shield-check me-2 text-warning"></i>
+            <strong>Paper Trading Mode:</strong> All figures are theoretical. No real money is at risk.
+            Shadow trading records what trades <em>would</em> be made based on the scoring system.
+        </div>
+    </div>
+
+    <!-- Performance Summary -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>Performance Summary</h5>
+                <span class="badge bg-secondary">Theoretical Results</span>
+            </div>
+            <div class="card-body" id="performance-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CLV Correlation - THE KEY METRIC -->
+    <div class="col-lg-6">
+        <div class="card h-100 border-primary">
+            <div class="card-header bg-primary bg-opacity-10">
+                <h5 class="mb-0"><i class="bi bi-bullseye me-2"></i>CLV Correlation</h5>
+                <small class="text-muted">Does positive CLV predict wins? This is the key validation metric.</small>
+            </div>
+            <div class="card-body p-0" id="clv-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Niche Performance -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-trophy me-2"></i>Niche Performance</h5>
+                <small class="text-muted">Which competition + market type combinations perform best?</small>
+            </div>
+            <div class="card-body p-0" id="niche-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Decisions -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-list-check me-2"></i>Recent Decisions</h5>
+                <div>
+                    <select class="form-select form-select-sm d-inline-block w-auto" id="outcome-filter">
+                        <option value="">All Outcomes</option>
+                        <option value="PENDING">Pending</option>
+                        <option value="WIN">Wins</option>
+                        <option value="LOSE">Losses</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body p-0" id="decisions-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Activation Thresholds (shown when in Phase 1) -->
+    <div class="col-12" id="thresholds-section" style="display: none;">
+        <div class="card border-secondary">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-unlock me-2"></i>Shadow Trading Activation</h5>
+                <small class="text-muted">Shadow trading will auto-activate when these thresholds are met</small>
+            </div>
+            <div class="card-body" id="thresholds-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentPhase = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        loadPhaseStatus();
+        loadPerformance();
+        loadCLVCorrelation();
+        loadNichePerformance();
+        loadDecisions();
+
+        // Filter change handler
+        document.getElementById('outcome-filter').addEventListener('change', loadDecisions);
+
+        // Auto-refresh every 60 seconds
+        setInterval(() => {
+            loadPhaseStatus();
+            loadPerformance();
+            loadDecisions();
+        }, 60000);
+    });
+
+    async function loadPhaseStatus() {
+        try {
+            const response = await fetch('/api/shadow/status');
+            const data = await response.json();
+            currentPhase = data.phase;
+
+            const phaseClass = data.phase === 'PHASE2_SHADOW' ? 'phase-shadow' : 'phase-collecting';
+            const phaseIcon = data.phase === 'PHASE2_SHADOW' ? 'bi-play-circle' : 'bi-hourglass-split';
+
+            document.getElementById('phase-status-container').innerHTML = `
+                <div class="phase-indicator ${phaseClass}">
+                    <i class="bi ${phaseIcon} me-2"></i>
+                    ${data.phase_display}
+                </div>
+            `;
+
+            // Show/hide thresholds section
+            const thresholdsSection = document.getElementById('thresholds-section');
+            if (data.phase === 'PHASE1_COLLECTING') {
+                thresholdsSection.style.display = 'block';
+                renderThresholds(data.thresholds);
+            } else {
+                thresholdsSection.style.display = 'none';
+            }
+
+        } catch (e) {
+            document.getElementById('phase-status-container').innerHTML =
+                '<span class="badge bg-danger">Error loading status</span>';
+        }
+    }
+
+    function renderThresholds(thresholds) {
+        let html = '<div class="row g-3">';
+
+        const items = [
+            { key: 'closing_data', label: 'Closing Data', color: 'info' },
+            { key: 'results', label: 'Settlement Results', color: 'success' },
+            { key: 'high_score_markets', label: 'High-Score Markets', color: 'warning' },
+            { key: 'days_collecting', label: 'Days Collecting', color: 'primary' },
+        ];
+
+        for (const item of items) {
+            const t = thresholds[item.key];
+            const pct = Math.min(100, (t.current / t.target) * 100);
+            const metIcon = t.met ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-circle text-muted"></i>';
+
+            html += `
+                <div class="col-md-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>${item.label}</span>
+                        <span>${t.current} / ${t.target} ${metIcon}</span>
+                    </div>
+                    <div class="threshold-bar">
+                        <div class="threshold-fill bg-${item.color}" style="width: ${pct}%"></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        html += '</div>';
+        document.getElementById('thresholds-container').innerHTML = html;
+    }
+
+    async function loadPerformance() {
+        try {
+            const response = await fetch('/api/shadow/performance');
+            const data = await response.json();
+
+            const pnlClass = data.net_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+            const pnlSign = data.net_pnl >= 0 ? '+' : '';
+
+            document.getElementById('performance-container').innerHTML = `
+                <div class="row g-3 text-center">
+                    <div class="col-md-2">
+                        <div class="stat-number text-info">${data.total_decisions}</div>
+                        <div class="stat-label">Total Decisions</div>
+                        <small class="text-muted">${data.pending_decisions} pending</small>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number text-success">${data.wins}</div>
+                        <div class="stat-label">Wins</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number text-danger">${data.losses}</div>
+                        <div class="stat-label">Losses</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number ${data.win_rate >= 52 ? 'text-success' : 'text-warning'}">${data.win_rate.toFixed(1)}%</div>
+                        <div class="stat-label">Win Rate</div>
+                        <small class="text-muted">Target: >52%</small>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number ${data.avg_clv_percent >= 0 ? 'clv-positive' : 'clv-negative'}">${data.avg_clv_percent >= 0 ? '+' : ''}${data.avg_clv_percent.toFixed(2)}%</div>
+                        <div class="stat-label">Avg CLV</div>
+                        <small class="text-muted">${data.positive_clv_rate.toFixed(0)}% positive</small>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number ${pnlClass}">${pnlSign}£${Math.abs(data.net_pnl).toFixed(2)}</div>
+                        <div class="stat-label">Net P&L*</div>
+                        <small class="text-muted">*Theoretical</small>
+                    </div>
+                </div>
+                ${data.best_niche ? `
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <small class="text-muted">Best niche:</small>
+                        <span class="badge bg-success">${data.best_niche}</span>
+                    </div>
+                    <div class="col-md-6">
+                        <small class="text-muted">Worst niche:</small>
+                        <span class="badge bg-danger">${data.worst_niche}</span>
+                    </div>
+                </div>
+                ` : ''}
+                <div class="mt-3 text-muted small">
+                    <i class="bi bi-info-circle me-1"></i>${data.disclaimer}
+                </div>
+            `;
+        } catch (e) {
+            document.getElementById('performance-container').innerHTML = `
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-hourglass-split fs-1"></i>
+                    <p class="mt-2">Shadow trading not yet active. Waiting for Phase 2 activation.</p>
+                </div>
+            `;
+        }
+    }
+
+    async function loadCLVCorrelation() {
+        try {
+            const response = await fetch('/api/shadow/clv-correlation');
+            const data = await response.json();
+
+            if (data.length === 0) {
+                document.getElementById('clv-container').innerHTML = `
+                    <div class="text-center text-muted py-4">
+                        <p>No CLV data yet. Decisions need closing prices and settlement to calculate CLV.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '<table class="table table-sm mb-0"><thead><tr>' +
+                '<th>CLV Band</th><th>Decisions</th><th>Win Rate</th><th>Avg P&L</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const winRateClass = row.win_rate >= 55 ? 'text-success' : row.win_rate >= 50 ? 'text-warning' : 'text-danger';
+                const pnlClass = row.avg_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+
+                html += `
+                    <tr>
+                        <td>${row.clv_band}</td>
+                        <td>${row.total_decisions} <small class="text-muted">(${row.wins}W/${row.losses}L)</small></td>
+                        <td class="${winRateClass} fw-bold">${row.win_rate.toFixed(1)}%</td>
+                        <td class="${pnlClass}">£${row.avg_pnl.toFixed(2)}</td>
+                    </tr>
+                `;
+            }
+
+            html += '</tbody></table>';
+            html += `
+                <div class="px-3 py-2 small text-muted bg-dark">
+                    <i class="bi bi-lightbulb me-1"></i>
+                    <strong>Key insight:</strong> If high CLV bands show higher win rates, the scoring system is validated.
+                    Positive CLV should correlate with winning trades.
+                </div>
+            `;
+
+            document.getElementById('clv-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('clv-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load CLV data</div>';
+        }
+    }
+
+    async function loadNichePerformance() {
+        try {
+            const response = await fetch('/api/shadow/niche-performance?min_decisions=3&limit=10');
+            const data = await response.json();
+
+            if (data.length === 0) {
+                document.getElementById('niche-container').innerHTML = `
+                    <div class="text-center text-muted py-4">
+                        <p>Not enough settled decisions yet to analyze niche performance.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '<table class="table table-sm mb-0"><thead><tr>' +
+                '<th>Niche</th><th>Decisions</th><th>Win Rate</th><th>ROI</th><th>Net P&L</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const winRateClass = row.win_rate >= 55 ? 'text-success' : row.win_rate >= 50 ? 'text-warning' : 'text-danger';
+                const roiClass = row.roi_percent >= 0 ? 'text-success' : 'text-danger';
+                const pnlClass = row.net_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+
+                html += `
+                    <tr>
+                        <td>
+                            <div><strong>${row.competition}</strong></div>
+                            <small class="text-muted">${row.market_type}</small>
+                        </td>
+                        <td>${row.total_decisions} <small class="text-muted">(${row.wins}W/${row.losses}L)</small></td>
+                        <td class="${winRateClass}">${row.win_rate.toFixed(1)}%</td>
+                        <td class="${roiClass}">${row.roi_percent >= 0 ? '+' : ''}${row.roi_percent.toFixed(1)}%</td>
+                        <td class="${pnlClass}">£${row.net_pnl.toFixed(2)}</td>
+                    </tr>
+                `;
+            }
+
+            html += '</tbody></table>';
+            document.getElementById('niche-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('niche-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load niche data</div>';
+        }
+    }
+
+    async function loadDecisions() {
+        try {
+            const outcome = document.getElementById('outcome-filter').value;
+            const url = outcome
+                ? `/api/shadow/decisions?outcome=${outcome}&limit=30`
+                : '/api/shadow/decisions?limit=30';
+
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data.length === 0) {
+                document.getElementById('decisions-container').innerHTML = `
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-inbox fs-1"></i>
+                        <p class="mt-2">No shadow decisions yet. ${currentPhase === 'PHASE1_COLLECTING' ? 'Waiting for Phase 2 activation.' : 'Decisions will appear as markets meet entry criteria.'}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '<table class="table table-sm table-hover mb-0"><thead><tr>' +
+                '<th>Time</th><th>Competition</th><th>Market</th><th>Selection</th><th>Score</th>' +
+                '<th>Entry</th><th>CLV</th><th>Outcome</th><th>P&L</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const time = new Date(row.decision_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                const date = new Date(row.decision_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+
+                const outcomeClass = row.outcome === 'WIN' ? 'bg-success' :
+                                     row.outcome === 'LOSE' ? 'bg-danger' :
+                                     row.outcome === 'VOID' ? 'bg-secondary' : 'bg-warning text-dark';
+
+                const clvDisplay = row.clv_percent !== null
+                    ? `<span class="${row.clv_percent >= 0 ? 'clv-positive' : 'clv-negative'}">${row.clv_percent >= 0 ? '+' : ''}${row.clv_percent.toFixed(2)}%</span>`
+                    : '<span class="text-muted">-</span>';
+
+                const pnlDisplay = row.net_pnl !== null
+                    ? `<span class="${row.net_pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">${row.net_pnl >= 0 ? '+' : ''}£${row.net_pnl.toFixed(2)}</span>`
+                    : '<span class="text-muted">-</span>';
+
+                html += `
+                    <tr>
+                        <td><small>${date}<br>${time}</small></td>
+                        <td><small>${row.competition}</small></td>
+                        <td><small>${row.market_type}</small></td>
+                        <td><strong>${row.decision_type}</strong> ${row.runner}</td>
+                        <td><span class="badge bg-primary">${row.trigger_score.toFixed(1)}</span></td>
+                        <td>${row.entry_price.toFixed(2)}</td>
+                        <td>${clvDisplay}</td>
+                        <td><span class="badge ${outcomeClass}">${row.outcome}</span></td>
+                        <td>${pnlDisplay}</td>
+                    </tr>
+                `;
+            }
+
+            html += '</tbody></table>';
+            document.getElementById('decisions-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('decisions-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load decisions</div>';
+        }
+    }
+</script>
+{% endblock %}

@@ -23,6 +23,7 @@ celery_app = Celery(
         "app.tasks.competition_stats",
         "app.tasks.market_closure",
         "app.tasks.results",
+        "app.tasks.shadow_trading",
     ],
 )
 
@@ -101,5 +102,35 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.results.update_results_from_scores_task",
         "schedule": crontab(minute=45),  # Every hour at :45
         "options": {"expires": 3540},
+    },
+
+    # ==========================================================================
+    # Shadow Trading Tasks (Phase 2)
+    # These tasks auto-check phase status and only run when Phase 2 is active
+    # ==========================================================================
+
+    # Check phase status - hourly
+    "check-phase-status": {
+        "task": "app.tasks.shadow_trading.check_phase_status_task",
+        "schedule": crontab(minute=0),  # Every hour at :00
+        "options": {"expires": 3540},
+    },
+    # Make shadow decisions - every 2 minutes
+    "make-shadow-decisions": {
+        "task": "app.tasks.shadow_trading.make_shadow_decisions_task",
+        "schedule": 120.0,  # 2 minutes
+        "options": {"expires": 110},
+    },
+    # Capture closing prices for CLV - every 2 minutes
+    "capture-shadow-closing-prices": {
+        "task": "app.tasks.shadow_trading.capture_closing_prices_task",
+        "schedule": 120.0,  # 2 minutes
+        "options": {"expires": 110},
+    },
+    # Settle shadow decisions - every 15 minutes
+    "settle-shadow-decisions": {
+        "task": "app.tasks.shadow_trading.settle_shadow_decisions_task",
+        "schedule": 900.0,  # 15 minutes
+        "options": {"expires": 840},
     },
 }

@@ -24,6 +24,7 @@ class TaskTriggerResponse(BaseModel):
 
 # Map of friendly names to actual Celery task names
 TASK_MAP = {
+    # Phase 1 tasks
     "capture-closing-data": "app.tasks.market_closure.capture_closing_data_task",
     "capture-results": "app.tasks.market_closure.capture_results_task",
     "capture-event-results": "app.tasks.results.capture_event_results_task",
@@ -32,6 +33,11 @@ TASK_MAP = {
     "capture-snapshots": "app.tasks.snapshots.capture_snapshots",
     "compute-profiles": "app.tasks.profiling.compute_daily_profiles",
     "score-markets": "app.tasks.scoring.score_markets",
+    # Phase 2 shadow trading tasks
+    "check-phase-status": "app.tasks.shadow_trading.check_phase_status_task",
+    "make-shadow-decisions": "app.tasks.shadow_trading.make_shadow_decisions_task",
+    "capture-shadow-closing-prices": "app.tasks.shadow_trading.capture_closing_prices_task",
+    "settle-shadow-decisions": "app.tasks.shadow_trading.settle_shadow_decisions_task",
 }
 
 
