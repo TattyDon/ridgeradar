@@ -1,7 +1,7 @@
 """Add MarketClosingData, EventResult, and ShadowDecision tables.
 
-Revision ID: 002_closing_results
-Revises: 001_initial  # Update this to match your actual previous revision
+Revision ID: 0003
+Revises: 0002
 Create Date: 2024-02-05
 
 These tables are CRITICAL for Phase 1 validation and Phase 2 shadow trading:
@@ -15,8 +15,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '003_closing_results'
-down_revision = '0002'  # Previous migration
+revision = '0003'
+down_revision = '0002'
 branch_labels = None
 depends_on = None
 
