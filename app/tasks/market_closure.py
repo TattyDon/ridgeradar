@@ -25,8 +25,7 @@ from sqlalchemy import and_, select, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import async_session_factory
-
+from app.models.base import get_task_session
 from app.models.domain import (
     Event,
     ExploitabilityScore,
@@ -318,7 +317,7 @@ def capture_closing_data_task() -> dict[str, Any]:
     Runs every 2 minutes to catch markets about to go in-play.
     """
     async def _run():
-        async with async_session_factory() as db:
+        async with get_task_session() as db:
             return await capture_closing_data(db)
 
     return asyncio.run(_run())
@@ -332,7 +331,7 @@ def capture_results_task() -> dict[str, Any]:
     Runs every 15 minutes to check for settled markets.
     """
     async def _run():
-        async with async_session_factory() as db:
+        async with get_task_session() as db:
             return await capture_results(db)
 
     return asyncio.run(_run())

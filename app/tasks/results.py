@@ -26,7 +26,7 @@ from celery import shared_task
 from sqlalchemy import and_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import async_session_factory
+from app.models.base import get_task_session
 from app.models.domain import (
     Competition,
     Event,
@@ -338,7 +338,7 @@ def capture_event_results_task() -> dict[str, Any]:
     Runs every 30 minutes to check for completed events.
     """
     async def _run():
-        async with async_session_factory() as db:
+        async with get_task_session() as db:
             return await capture_event_results(db)
 
     return asyncio.run(_run())
@@ -352,7 +352,7 @@ def update_results_from_scores_task() -> dict[str, Any]:
     Runs every hour to improve score accuracy.
     """
     async def _run():
-        async with async_session_factory() as db:
+        async with get_task_session() as db:
             return await update_results_from_scores(db)
 
     return asyncio.run(_run())
