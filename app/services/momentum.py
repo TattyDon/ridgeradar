@@ -202,13 +202,17 @@ class MomentumAnalyzer:
         })
         rows = result.fetchall()
 
+        # Get runner names from database
+        market_ids = [row.market_id for row in rows]
+        runner_names = await self._get_runner_names(market_ids)
+
         steamers = []
         drifters = []
         sharp_moves = []
 
         for row in rows:
             # Parse runner data from ladder JSON
-            runners = self._extract_runners_with_momentum(row)
+            runners = self._extract_runners_with_momentum(row, runner_names)
 
             for runner in runners:
                 # Determine primary change (use longest available timeframe)
@@ -255,7 +259,29 @@ class MomentumAnalyzer:
             timestamp=now,
         )
 
-    def _extract_runners_with_momentum(self, row) -> list[RunnerMomentum]:
+    async def _get_runner_names(self, market_ids: list[int]) -> dict[tuple[int, int], str]:
+        """
+        Get runner names from database.
+
+        Returns dict mapping (market_id, betfair_runner_id) -> runner_name
+        """
+        if not market_ids:
+            return {}
+
+        result = await self.db.execute(text("""
+            SELECT market_id, betfair_id, name
+            FROM runners
+            WHERE market_id = ANY(:market_ids)
+        """), {"market_ids": market_ids})
+
+        return {
+            (row[0], row[1]): row[2]
+            for row in result
+        }
+
+    def _extract_runners_with_momentum(
+        self, row, runner_names: dict[tuple[int, int], str]
+    ) -> list[RunnerMomentum]:
         """Extract runner momentum data from a price comparison row."""
         runners = []
 
@@ -308,9 +334,13 @@ class MomentumAnalyzer:
                     delta = row.event_start - datetime.now(timezone.utc)
                     minutes_to_start = max(0, int(delta.total_seconds() / 60))
 
+                # Look up runner name from database, fallback to ladder data or ID
+                db_runner_name = runner_names.get((row.market_id, runner_id))
+                display_name = db_runner_name or runner_data.get("name") or f"Runner {runner_id}"
+
                 runners.append(RunnerMomentum(
                     runner_id=runner_id,
-                    runner_name=runner_data.get("name", f"Runner {runner_id}"),
+                    runner_name=display_name,
                     market_id=row.market_id,
                     event_name=row.event_name,
                     competition_name=row.competition_name,

@@ -278,51 +278,58 @@ class MarketDiscoveryService:
 
         events = []
 
-        # Process in batches to avoid API limits
-        batch_size = 20
-        comp_ids = [c["betfair_id"] for c in competitions]
+        # Query events ONE competition at a time to ensure correct mapping
+        # (Betfair's listEvents doesn't return which competition each event belongs to)
+        for comp in competitions:
+            comp_betfair_id = comp["betfair_id"]
+            comp_db_id = comp_map.get(comp_betfair_id)
 
-        for i in range(0, len(comp_ids), batch_size):
-            batch = comp_ids[i : i + batch_size]
-
-            bf_events = await self.betfair.list_events(
-                competition_ids=batch,
-                from_time=now,
-                to_time=to_time,
-            )
-
-            for event in bf_events:
-                # Find competition - need to determine from event
-                comp_db_id = None
-                for comp in competitions:
-                    if comp["betfair_id"] in batch:
-                        comp_db_id = comp_map.get(comp["betfair_id"])
-                        break
-
-                if not comp_db_id:
-                    comp_db_id = comp_map.get(batch[0])
-
-                stmt = insert(Event).values(
-                    betfair_id=event.id,
-                    competition_id=comp_db_id,
-                    name=event.name,
-                    scheduled_start=event.open_date or now,
-                    status="SCHEDULED",
+            if not comp_db_id:
+                logger.warning(
+                    "competition_not_in_db",
+                    betfair_id=comp_betfair_id,
+                    name=comp.get("name"),
                 )
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["betfair_id"],
-                    set_={
-                        "name": event.name,
-                        "scheduled_start": event.open_date or now,
-                    },
-                )
-                await self.session.execute(stmt)
+                continue
 
-                events.append(
-                    {
-                        "betfair_id": event.id,
-                        "name": event.name,
-                    }
+            try:
+                bf_events = await self.betfair.list_events(
+                    competition_ids=[comp_betfair_id],
+                    from_time=now,
+                    to_time=to_time,
+                )
+
+                for event in bf_events:
+                    stmt = insert(Event).values(
+                        betfair_id=event.id,
+                        competition_id=comp_db_id,
+                        name=event.name,
+                        scheduled_start=event.open_date or now,
+                        status="SCHEDULED",
+                    )
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["betfair_id"],
+                        set_={
+                            "name": event.name,
+                            "scheduled_start": event.open_date or now,
+                            # Also update competition_id in case it was wrong before
+                            "competition_id": comp_db_id,
+                        },
+                    )
+                    await self.session.execute(stmt)
+
+                    events.append(
+                        {
+                            "betfair_id": event.id,
+                            "name": event.name,
+                        }
+                    )
+
+            except Exception as e:
+                logger.warning(
+                    "event_discovery_error",
+                    competition=comp.get("name"),
+                    error=str(e),
                 )
 
         await self.session.commit()
