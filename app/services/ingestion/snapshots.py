@@ -138,6 +138,8 @@ class SnapshotCaptureService:
             "snapshots_stored": 0,
             "markets_suspended": 0,
             "errors": 0,
+            "batches_processed": 0,
+            "batches_failed": 0,
         }
 
         # Get markets to capture
@@ -159,9 +161,18 @@ class SnapshotCaptureService:
         betfair_ids = [m.betfair_id for m in markets]
         id_map = {m.betfair_id: m.id for m in markets}
 
+        total_batches = (len(betfair_ids) + self.max_markets_per_batch - 1) // self.max_markets_per_batch
+        logger.info(
+            "snapshot_capture_starting",
+            total_markets=len(markets),
+            total_batches=total_batches,
+            batch_size=self.max_markets_per_batch,
+        )
+
         # Process in batches
         for i in range(0, len(betfair_ids), self.max_markets_per_batch):
             batch = betfair_ids[i : i + self.max_markets_per_batch]
+            batch_num = i // self.max_markets_per_batch + 1
 
             try:
                 books = await self.betfair.list_market_book(
@@ -169,6 +180,8 @@ class SnapshotCaptureService:
                     price_depth=self.ladder_depth,
                 )
 
+                batch_stored = 0
+                batch_suspended = 0
                 for book in books:
                     db_market_id = id_map.get(book.market_id)
                     if not db_market_id:
@@ -177,11 +190,13 @@ class SnapshotCaptureService:
                     # Check if market is still active
                     if book.status != "OPEN":
                         stats["markets_suspended"] += 1
+                        batch_suspended += 1
                         await self._mark_market_status(db_market_id, book.status)
                         continue
 
                     if book.in_play:
                         stats["markets_suspended"] += 1
+                        batch_suspended += 1
                         await self._mark_market_inplay(db_market_id)
                         continue
 
@@ -199,13 +214,31 @@ class SnapshotCaptureService:
                     )
                     self.session.add(snapshot)
                     stats["snapshots_stored"] += 1
+                    batch_stored += 1
+
+                stats["batches_processed"] += 1
+
+                # Log progress every 100 batches or on first/last batch
+                if batch_num == 1 or batch_num == total_batches or batch_num % 100 == 0:
+                    logger.info(
+                        "snapshot_batch_progress",
+                        batch=batch_num,
+                        total_batches=total_batches,
+                        batch_stored=batch_stored,
+                        batch_suspended=batch_suspended,
+                        total_stored=stats["snapshots_stored"],
+                    )
 
             except Exception as e:
                 error_str = str(e)
+                stats["batches_failed"] += 1
+
                 # Handle TOO_MUCH_DATA - just skip batch, don't close markets
                 if "TOO_MUCH_DATA" in error_str:
                     logger.warning(
                         "snapshot_batch_too_much_data",
+                        batch=batch_num,
+                        total_batches=total_batches,
                         batch_start=i,
                         batch_size=len(batch),
                     )
@@ -214,6 +247,8 @@ class SnapshotCaptureService:
                 elif "400" in error_str:
                     logger.warning(
                         "snapshot_batch_invalid_markets",
+                        batch=batch_num,
+                        total_batches=total_batches,
                         batch_start=i,
                         batch_size=len(batch),
                         error=error_str[:200],
@@ -227,6 +262,8 @@ class SnapshotCaptureService:
                 else:
                     logger.error(
                         "snapshot_batch_error",
+                        batch=batch_num,
+                        total_batches=total_batches,
                         error=error_str,
                         batch_start=i,
                         batch_size=len(batch),

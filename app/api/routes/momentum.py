@@ -355,14 +355,78 @@ async def get_momentum_diagnostics(
 
         active_markets = result3.scalar()
 
+        # Check enabled competitions and their market counts
+        result4 = await db.execute(text("""
+            SELECT
+                c.enabled,
+                COUNT(DISTINCT c.id) as competition_count,
+                COUNT(DISTINCT m.id) as market_count
+            FROM competitions c
+            LEFT JOIN events e ON e.competition_id = c.id
+            LEFT JOIN markets m ON m.event_id = e.id AND m.status = 'OPEN' AND m.in_play = FALSE
+            GROUP BY c.enabled
+        """))
+
+        competition_stats = {}
+        for row4 in result4:
+            key = "enabled" if row4[0] else "disabled"
+            competition_stats[key] = {
+                "competitions": row4[1],
+                "open_markets": row4[2] or 0
+            }
+
+        # Get recent job runs with full metadata
+        result5 = await db.execute(text("""
+            SELECT
+                job_name,
+                status,
+                records_processed,
+                started_at,
+                completed_at,
+                error_message,
+                job_metadata
+            FROM job_runs
+            WHERE job_name = 'capture_snapshots'
+            ORDER BY started_at DESC
+            LIMIT 5
+        """))
+
+        recent_jobs = []
+        for job_row in result5:
+            recent_jobs.append({
+                "job_name": job_row[0],
+                "status": job_row[1],
+                "records_processed": job_row[2],
+                "started_at": job_row[3].isoformat() if job_row[3] else None,
+                "completed_at": job_row[4].isoformat() if job_row[4] else None,
+                "error_message": job_row[5],
+                "job_metadata": job_row[6],  # This contains markets_queried, errors, etc.
+            })
+
+        # Check how many markets would be captured (same criteria as snapshot task)
+        result6 = await db.execute(text("""
+            SELECT COUNT(*)
+            FROM markets m
+            JOIN events e ON m.event_id = e.id
+            JOIN competitions c ON e.competition_id = c.id
+            WHERE m.status = 'OPEN'
+              AND m.in_play = FALSE
+              AND c.enabled = TRUE
+        """))
+
+        capturable_markets = result6.scalar()
+
         return {
             "timestamp": now.isoformat(),
             "hours_ahead": hours_ahead,
             "active_markets_in_window": active_markets,
+            "capturable_markets_for_snapshots": capturable_markets,
             "markets_with_current_snapshot": row[0] if row else 0,
             "markets_with_historical_snapshot": row[1] if row else 0,
             "markets_with_both_for_comparison": row[2] if row else 0,
             "snapshot_distribution": snapshot_distribution,
+            "competition_stats": competition_stats,
+            "recent_snapshot_jobs": recent_jobs,
             "explanation": {
                 "a_last_30m": "Snapshots from the last 30 minutes (current prices)",
                 "b_30m_to_1h": "Snapshots from 30-60 mins ago (for 30m comparison)",
@@ -370,7 +434,7 @@ async def get_momentum_diagnostics(
                 "d_2h_to_4h": "Snapshots from 2-4 hours ago (for 4h comparison)",
                 "e_older": "Older snapshots (not used for momentum)",
             },
-            "note": "For momentum detection, markets need snapshots from both current AND historical timeframes"
+            "note": "For momentum detection, markets need snapshots from both current AND historical timeframes. Check recent_snapshot_jobs for job_metadata to see why only some markets are captured."
         }
 
     except Exception as e:
