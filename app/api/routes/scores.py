@@ -1,12 +1,16 @@
-"""Exploitability scores API endpoints."""
+"""Exploitability scores API endpoints.
+
+Returns deduplicated scores - only the latest score per market is shown.
+This prevents duplicate rows when the scoring task runs multiple times.
+"""
 
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, aliased
 
 from app.api.dependencies import get_db
 from app.models.domain import Competition, Event, ExploitabilityScore, Market
@@ -52,13 +56,34 @@ async def list_scores(
     limit: int = Query(50, ge=1, le=200),
 ):
     """
-    List exploitability scores.
+    List exploitability scores (deduplicated - latest per market only).
 
     Scores are filtered by the scoring engine's volume penalty -
     high volume (efficient) markets automatically score lower.
+
+    Only shows the most recent score for each market to avoid duplicates
+    from multiple scoring task runs.
     """
+    # Subquery to get the latest score ID for each market
+    latest_score_subq = (
+        select(
+            ExploitabilityScore.market_id,
+            func.max(ExploitabilityScore.id).label("max_id")
+        )
+        .group_by(ExploitabilityScore.market_id)
+        .subquery()
+    )
+
+    # Main query joining only to the latest scores
     query = (
         select(ExploitabilityScore, Market, Event, Competition)
+        .join(
+            latest_score_subq,
+            and_(
+                ExploitabilityScore.market_id == latest_score_subq.c.market_id,
+                ExploitabilityScore.id == latest_score_subq.c.max_id
+            )
+        )
         .join(Market, ExploitabilityScore.market_id == Market.id)
         .join(Event, Market.event_id == Event.id)
         .join(Competition, Event.competition_id == Competition.id)
@@ -109,13 +134,32 @@ async def top_scores(
     limit: int = Query(10, ge=1, le=50),
 ):
     """
-    Get top N markets by score.
+    Get top N markets by score (deduplicated - latest per market only).
 
     Returns the highest scoring markets for quick dashboard view.
     High volume (efficient) markets automatically score lower.
+
+    Only shows the most recent score for each market to avoid duplicates.
     """
+    # Subquery to get the latest score ID for each market
+    latest_score_subq = (
+        select(
+            ExploitabilityScore.market_id,
+            func.max(ExploitabilityScore.id).label("max_id")
+        )
+        .group_by(ExploitabilityScore.market_id)
+        .subquery()
+    )
+
     query = (
         select(ExploitabilityScore, Market, Event, Competition)
+        .join(
+            latest_score_subq,
+            and_(
+                ExploitabilityScore.market_id == latest_score_subq.c.market_id,
+                ExploitabilityScore.id == latest_score_subq.c.max_id
+            )
+        )
         .join(Market, ExploitabilityScore.market_id == Market.id)
         .join(Event, Market.event_id == Event.id)
         .join(Competition, Event.competition_id == Competition.id)

@@ -1,0 +1,463 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+    .analytics-card {
+        height: 100%;
+    }
+    .stat-number {
+        font-size: 2rem;
+        font-weight: bold;
+    }
+    .stat-label {
+        color: #94a3b8;
+        font-size: 0.875rem;
+    }
+    .leaderboard-rank {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 0.875rem;
+    }
+    .rank-1 { background: linear-gradient(135deg, #ffd700, #ffb800); color: #000; }
+    .rank-2 { background: linear-gradient(135deg, #c0c0c0, #a0a0a0); color: #000; }
+    .rank-3 { background: linear-gradient(135deg, #cd7f32, #b06c2a); color: #fff; }
+    .rank-other { background: #334155; color: #94a3b8; }
+    .component-bar {
+        height: 24px;
+        background: #334155;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    .component-fill {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        padding-left: 8px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Page Header -->
+    <div class="col-12">
+        <h4 class="mb-0"><i class="bi bi-graph-up-arrow me-2"></i>Score Analytics</h4>
+        <p class="text-muted mb-0">Understand what drives high exploitability scores</p>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-pie-chart me-2"></i>Score Distribution Summary</h5>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadSummary()">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                </button>
+            </div>
+            <div class="card-body" id="summary-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Score Components Analysis -->
+    <div class="col-lg-6">
+        <div class="card analytics-card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-sliders me-2"></i>Score Component Analysis</h5>
+            </div>
+            <div class="card-body p-0" id="components-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Volume Penalty Effectiveness -->
+    <div class="col-lg-6">
+        <div class="card analytics-card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-speedometer me-2"></i>Volume Penalty Effectiveness</h5>
+            </div>
+            <div class="card-body p-0" id="volume-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Competition Leaderboard -->
+    <div class="col-lg-8">
+        <div class="card analytics-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-trophy me-2"></i>Competition Leaderboard</h5>
+                <span class="badge bg-info">Learned from Data</span>
+            </div>
+            <div class="card-body p-0" id="leaderboard-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Time Bucket Analysis -->
+    <div class="col-lg-4">
+        <div class="card analytics-card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-clock me-2"></i>Time Bucket Analysis</h5>
+            </div>
+            <div class="card-body p-0" id="time-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Odds Band Analysis -->
+    <div class="col-lg-6">
+        <div class="card analytics-card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-percent me-2"></i>Odds Band Analysis</h5>
+            </div>
+            <div class="card-body p-0" id="odds-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Raw Metrics by Score Band -->
+    <div class="col-lg-6">
+        <div class="card analytics-card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-rulers me-2"></i>Raw Metrics by Score Band</h5>
+            </div>
+            <div class="card-body p-0" id="metrics-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- High Scoring Markets -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-star-fill text-warning me-2"></i>High Scoring Markets (55+)</h5>
+                <span class="badge bg-success" id="high-score-count">Loading...</span>
+            </div>
+            <div class="card-body p-0" id="high-scores-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Load all analytics on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        loadSummary();
+        loadComponents();
+        loadVolume();
+        loadLeaderboard();
+        loadTimeBuckets();
+        loadOddsBands();
+        loadRawMetrics();
+        loadHighScores();
+    });
+
+    // Summary Stats
+    async function loadSummary() {
+        try {
+            const response = await fetch('/api/analytics/summary');
+            const data = await response.json();
+
+            const total = data.total_markets;
+            const excellentPct = total ? (data.excellent_70_plus / total * 100).toFixed(1) : 0;
+            const highPct = total ? (data.high_55_70 / total * 100).toFixed(1) : 0;
+            const mediumPct = total ? (data.medium_40_55 / total * 100).toFixed(1) : 0;
+            const lowPct = total ? (data.low_under_40 / total * 100).toFixed(1) : 0;
+
+            document.getElementById('summary-container').innerHTML = `
+                <div class="row g-4 text-center">
+                    <div class="col-md-2">
+                        <div class="stat-number text-info">${data.total_markets.toLocaleString()}</div>
+                        <div class="stat-label">Total Scored</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number text-success">${data.excellent_70_plus}</div>
+                        <div class="stat-label">Excellent (70+)</div>
+                        <small class="text-muted">${excellentPct}%</small>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number text-primary">${data.high_55_70}</div>
+                        <div class="stat-label">High (55-70)</div>
+                        <small class="text-muted">${highPct}%</small>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number text-warning">${data.medium_40_55}</div>
+                        <div class="stat-label">Medium (40-55)</div>
+                        <small class="text-muted">${mediumPct}%</small>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number text-danger">${data.low_under_40.toLocaleString()}</div>
+                        <div class="stat-label">Low (<40)</div>
+                        <small class="text-muted">${lowPct}%</small>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number" style="color: #22c55e;">${data.highest_score.toFixed(1)}</div>
+                        <div class="stat-label">Highest Score</div>
+                        <small class="text-muted">Avg: ${data.overall_avg_score.toFixed(1)}</small>
+                    </div>
+                </div>
+            `;
+        } catch (e) {
+            document.getElementById('summary-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load summary</div>';
+        }
+    }
+
+    // Score Components
+    async function loadComponents() {
+        try {
+            const response = await fetch('/api/analytics/score-components');
+            const data = await response.json();
+
+            let html = '<table class="table table-sm mb-0"><thead><tr>' +
+                '<th>Band</th><th>Count</th><th>Spread</th><th>Volatility</th><th>Update</th><th>Depth</th><th>Vol Penalty</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const bandClass = row.band.includes('Excellent') ? 'text-success' :
+                                  row.band.includes('High') ? 'text-primary' :
+                                  row.band.includes('Medium') ? 'text-warning' : 'text-danger';
+                html += `
+                    <tr>
+                        <td><span class="${bandClass}">${row.band}</span></td>
+                        <td>${row.count.toLocaleString()}</td>
+                        <td>${row.avg_spread_score.toFixed(1)}</td>
+                        <td>${row.avg_volatility_score.toFixed(1)}</td>
+                        <td>${row.avg_update_score.toFixed(1)}</td>
+                        <td>${row.avg_depth_score.toFixed(1)}</td>
+                        <td class="text-danger">-${row.avg_volume_penalty.toFixed(1)}</td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+            document.getElementById('components-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('components-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load components</div>';
+        }
+    }
+
+    // Volume Analysis
+    async function loadVolume() {
+        try {
+            const response = await fetch('/api/analytics/volume-analysis');
+            const data = await response.json();
+
+            let html = '<table class="table table-sm mb-0"><thead><tr>' +
+                '<th>Volume Band</th><th>Markets</th><th>Avg Score</th><th>Avg Penalty</th><th>High Value</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const scoreClass = row.avg_score >= 55 ? 'text-success' : row.avg_score >= 40 ? 'text-warning' : 'text-danger';
+                html += `
+                    <tr>
+                        <td>${row.band}</td>
+                        <td>${row.market_count.toLocaleString()}</td>
+                        <td class="${scoreClass}">${row.avg_score.toFixed(1)}</td>
+                        <td class="text-danger">-${row.avg_volume_penalty.toFixed(1)}</td>
+                        <td>${row.high_value}</td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+            html += '<div class="px-3 py-2 small text-muted bg-dark"><i class="bi bi-info-circle me-1"></i>Low volume = higher scores (as expected). Volume penalty working correctly.</div>';
+            document.getElementById('volume-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('volume-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load volume analysis</div>';
+        }
+    }
+
+    // Competition Leaderboard
+    async function loadLeaderboard() {
+        try {
+            const response = await fetch('/api/analytics/competition-leaderboard?limit=15');
+            const data = await response.json();
+
+            let html = '<table class="table table-sm table-hover mb-0"><thead><tr>' +
+                '<th width="40">#</th><th>Competition</th><th>Markets</th><th>Avg Score</th><th>Max</th><th>High Value</th></tr></thead><tbody>';
+
+            data.forEach((row, idx) => {
+                const rankClass = idx === 0 ? 'rank-1' : idx === 1 ? 'rank-2' : idx === 2 ? 'rank-3' : 'rank-other';
+                const scoreClass = row.avg_score >= 55 ? 'text-success' : row.avg_score >= 40 ? 'text-warning' : 'text-secondary';
+                const country = row.country_code ? `<small class="text-muted ms-1">(${row.country_code})</small>` : '';
+
+                html += `
+                    <tr>
+                        <td><span class="leaderboard-rank ${rankClass}">${idx + 1}</span></td>
+                        <td><strong>${row.name}</strong>${country}</td>
+                        <td>${row.markets_scored}</td>
+                        <td class="${scoreClass} fw-bold">${row.avg_score.toFixed(1)}</td>
+                        <td>${row.max_score.toFixed(1)}</td>
+                        <td><span class="badge bg-success">${row.high_value_markets}</span></td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('leaderboard-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('leaderboard-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load leaderboard</div>';
+        }
+    }
+
+    // Time Buckets
+    async function loadTimeBuckets() {
+        try {
+            const response = await fetch('/api/analytics/time-buckets');
+            const data = await response.json();
+
+            let html = '<table class="table table-sm mb-0"><thead><tr>' +
+                '<th>Bucket</th><th>Total</th><th>Avg</th><th>% High</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const pctClass = row.pct_high_value >= 1 ? 'text-success' : row.pct_high_value >= 0.5 ? 'text-warning' : 'text-secondary';
+                html += `
+                    <tr>
+                        <td><span class="badge bg-secondary">${row.bucket}</span></td>
+                        <td>${row.total_scores.toLocaleString()}</td>
+                        <td>${row.avg_score.toFixed(1)}</td>
+                        <td class="${pctClass}">${row.pct_high_value.toFixed(2)}%</td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+            document.getElementById('time-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('time-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load time buckets</div>';
+        }
+    }
+
+    // Odds Bands
+    async function loadOddsBands() {
+        try {
+            const response = await fetch('/api/analytics/odds-bands');
+            const data = await response.json();
+
+            let html = '<table class="table table-sm mb-0"><thead><tr>' +
+                '<th>Odds Band</th><th>Total</th><th>Avg Score</th><th>Max</th><th>% High</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const scoreClass = row.avg_score >= 40 ? 'text-success' : row.avg_score >= 30 ? 'text-warning' : 'text-secondary';
+                html += `
+                    <tr>
+                        <td>${row.band}</td>
+                        <td>${row.total_scores.toLocaleString()}</td>
+                        <td class="${scoreClass}">${row.avg_score.toFixed(1)}</td>
+                        <td>${row.max_score.toFixed(1)}</td>
+                        <td>${row.pct_high_value.toFixed(2)}%</td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+            document.getElementById('odds-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('odds-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load odds bands</div>';
+        }
+    }
+
+    // Raw Metrics
+    async function loadRawMetrics() {
+        try {
+            const response = await fetch('/api/analytics/raw-metrics');
+            const data = await response.json();
+
+            let html = '<table class="table table-sm mb-0"><thead><tr>' +
+                '<th>Band</th><th>Spread (ticks)</th><th>Volatility</th><th>Depth</th><th>Volume</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const bandClass = row.band.includes('Excellent') ? 'text-success' :
+                                  row.band.includes('High') ? 'text-primary' :
+                                  row.band.includes('Medium') ? 'text-warning' : 'text-danger';
+                html += `
+                    <tr>
+                        <td><span class="${bandClass}">${row.band}</span></td>
+                        <td>${row.avg_spread_ticks.toFixed(2)} <small class="text-muted">(${row.min_spread.toFixed(1)}-${row.max_spread.toFixed(1)})</small></td>
+                        <td>${row.avg_volatility.toFixed(4)}</td>
+                        <td>${row.avg_depth.toLocaleString()}</td>
+                        <td>${(row.avg_volume/1000).toFixed(0)}k <small class="text-muted">(${(row.min_volume/1000).toFixed(0)}k-${(row.max_volume/1000).toFixed(0)}k)</small></td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+            document.getElementById('metrics-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('metrics-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load raw metrics</div>';
+        }
+    }
+
+    // High Scoring Markets
+    async function loadHighScores() {
+        try {
+            const response = await fetch('/api/analytics/high-scoring-markets?min_score=55&limit=20');
+            const data = await response.json();
+
+            document.getElementById('high-score-count').textContent = data.length + ' markets';
+
+            if (data.length === 0) {
+                document.getElementById('high-scores-container').innerHTML =
+                    '<div class="text-center text-muted py-4">No markets scoring 55+ yet. Keep collecting data!</div>';
+                return;
+            }
+
+            let html = '<table class="table table-sm table-hover mb-0"><thead><tr>' +
+                '<th>Competition</th><th>Event</th><th>Market</th><th>Score</th><th>Components</th><th>Volume</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const scoreClass = row.total_score >= 70 ? 'bg-success' : 'bg-primary';
+                const volume = row.total_matched_volume ? (row.total_matched_volume/1000).toFixed(0) + 'k' : '-';
+
+                html += `
+                    <tr>
+                        <td><small>${row.competition}</small></td>
+                        <td><small>${row.event}</small></td>
+                        <td><strong>${row.market}</strong></td>
+                        <td><span class="badge ${scoreClass}">${row.total_score.toFixed(1)}</span></td>
+                        <td>
+                            <small class="text-muted">
+                                S:${row.spread_score.toFixed(0)}
+                                V:${row.volatility_score.toFixed(0)}
+                                D:${row.depth_score.toFixed(0)}
+                                <span class="text-danger">-${row.volume_penalty.toFixed(0)}</span>
+                            </small>
+                        </td>
+                        <td><small>${volume}</small></td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+            document.getElementById('high-scores-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('high-scores-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load high scoring markets</div>';
+        }
+    }
+</script>
+{% endblock %}

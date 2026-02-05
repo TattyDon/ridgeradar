@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.api.routes import competitions, config, health, markets, scores
+from app.api.routes import analytics, competitions, config, health, markets, scores
 from app.config import get_settings
 
 # Configure structured logging
@@ -69,6 +69,7 @@ app.include_router(markets.router)
 app.include_router(scores.router)
 app.include_router(competitions.router)
 app.include_router(config.router)
+app.include_router(analytics.router)
 
 
 # UI Routes
@@ -105,6 +106,15 @@ async def competitions(request: Request):
     return templates.TemplateResponse(
         "competitions.html",
         {"request": request, "title": "Competitions"},
+    )
+
+
+@app.get("/analytics", response_class=HTMLResponse)
+async def analytics_page(request: Request):
+    """Score analytics page."""
+    return templates.TemplateResponse(
+        "analytics.html",
+        {"request": request, "title": "Analytics"},
     )
 
 
