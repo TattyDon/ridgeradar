@@ -289,7 +289,20 @@ async def get_decisions(
     All decisions are HYPOTHETICAL - no real trades were executed.
     """
     try:
-        query = text("""
+        # Build query dynamically to avoid asyncpg type inference issues with NULL
+        where_clauses = []
+        params = {"limit": limit}
+
+        if outcome:
+            where_clauses.append("sd.outcome = :outcome")
+            params["outcome"] = outcome
+        if niche:
+            where_clauses.append("sd.niche = :niche")
+            params["niche"] = niche
+
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+        query = text(f"""
             SELECT
                 sd.id,
                 sd.decision_at,
@@ -313,18 +326,12 @@ async def get_decisions(
             JOIN events e ON m.event_id = e.id
             JOIN competitions c ON e.competition_id = c.id
             JOIN runners r ON sd.runner_id = r.id
-            WHERE
-                (:outcome IS NULL OR sd.outcome = :outcome)
-                AND (:niche IS NULL OR sd.niche = :niche)
+            {where_sql}
             ORDER BY sd.decision_at DESC
             LIMIT :limit
         """)
 
-        result = await db.execute(query, {
-            "outcome": outcome,
-            "niche": niche,
-            "limit": limit,
-        })
+        result = await db.execute(query, params)
         rows = result.fetchall()
 
         # Return empty list if no decisions yet
