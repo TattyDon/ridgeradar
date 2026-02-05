@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import Competition, Event, Market, MarketSnapshot
 from app.services.betfair_client import BetfairClient
-from app.services.betfair_client.api import MarketBook
+from app.services.betfair_client.api import BetfairAPIError, BetfairErrorType, MarketBook
 
 logger = structlog.get_logger(__name__)
 
@@ -229,46 +229,64 @@ class SnapshotCaptureService:
                         total_stored=stats["snapshots_stored"],
                     )
 
-            except Exception as e:
-                error_str = str(e)
+            except BetfairAPIError as e:
                 stats["batches_failed"] += 1
+                error_type = e.error_type.value if hasattr(e, 'error_type') else "UNKNOWN"
 
-                # Handle TOO_MUCH_DATA - just skip batch, don't close markets
-                if "TOO_MUCH_DATA" in error_str:
+                # Track error types for debugging
+                error_type_key = f"error_{error_type.lower()}"
+                stats[error_type_key] = stats.get(error_type_key, 0) + 1
+
+                if e.error_type == BetfairErrorType.TOO_MUCH_DATA:
+                    # TOO_MUCH_DATA - skip batch, don't close markets
                     logger.warning(
                         "snapshot_batch_too_much_data",
                         batch=batch_num,
                         total_batches=total_batches,
-                        batch_start=i,
                         batch_size=len(batch),
                     )
                     stats["errors"] += 1
-                # Handle 400 Bad Request - might be invalid/stale market IDs
-                elif "400" in error_str:
+                elif e.error_type == BetfairErrorType.INVALID_INPUT:
+                    # Invalid market IDs - mark as closed
                     logger.warning(
                         "snapshot_batch_invalid_markets",
                         batch=batch_num,
                         total_batches=total_batches,
-                        batch_start=i,
                         batch_size=len(batch),
-                        error=error_str[:200],
+                        error=str(e)[:200],
+                        market_ids=batch[:3],  # Log first 3 IDs for debugging
                     )
-                    # Only mark as CLOSED if it's not TOO_MUCH_DATA
                     for market_id in batch:
                         db_id = id_map.get(market_id)
                         if db_id:
                             await self._mark_market_status(db_id, "CLOSED")
                             stats["markets_suspended"] += 1
                 else:
+                    # Other Betfair errors
                     logger.error(
-                        "snapshot_batch_error",
+                        "snapshot_batch_betfair_error",
                         batch=batch_num,
                         total_batches=total_batches,
-                        error=error_str,
-                        batch_start=i,
+                        error_type=error_type,
+                        error=str(e)[:300],
                         batch_size=len(batch),
                     )
                     stats["errors"] += 1
+
+            except Exception as e:
+                # Non-Betfair errors (network, parsing, etc.)
+                stats["batches_failed"] += 1
+                stats["error_other"] = stats.get("error_other", 0) + 1
+
+                logger.error(
+                    "snapshot_batch_unexpected_error",
+                    batch=batch_num,
+                    total_batches=total_batches,
+                    error_type=type(e).__name__,
+                    error=str(e)[:300],
+                    batch_size=len(batch),
+                )
+                stats["errors"] += 1
 
         await self.session.commit()
 
