@@ -7,8 +7,12 @@ These endpoints should be protected in production (not implemented here).
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.dependencies import get_db
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 logger = structlog.get_logger(__name__)
@@ -100,3 +104,51 @@ async def trigger_task(task_name: str) -> TaskTriggerResponse:
 async def list_tasks() -> dict[str, str]:
     """List all available tasks that can be triggered manually."""
     return TASK_MAP
+
+
+class TableStats(BaseModel):
+    """Stats for a single table."""
+    name: str
+    rows: int
+    size: str
+
+
+class DatabaseStats(BaseModel):
+    """Database statistics."""
+    total_size: str
+    tables: list[TableStats]
+
+
+@router.get("/database-stats", response_model=DatabaseStats)
+async def get_database_stats(db: AsyncSession = Depends(get_db)) -> DatabaseStats:
+    """
+    Get database size and table statistics.
+
+    Returns total database size and row counts per table.
+    """
+    try:
+        # Get total database size
+        size_query = text("SELECT pg_size_pretty(pg_database_size(current_database())) AS size")
+        size_result = await db.execute(size_query)
+        total_size = size_result.scalar() or "Unknown"
+
+        # Get table stats - row counts and sizes
+        tables_query = text("""
+            SELECT
+                relname AS name,
+                n_live_tup AS rows,
+                pg_size_pretty(pg_total_relation_size(quote_ident(relname))) AS size
+            FROM pg_stat_user_tables
+            ORDER BY n_live_tup DESC
+        """)
+        tables_result = await db.execute(tables_query)
+        tables = [
+            TableStats(name=row.name, rows=row.rows, size=row.size)
+            for row in tables_result.fetchall()
+        ]
+
+        return DatabaseStats(total_size=total_size, tables=tables)
+
+    except Exception as e:
+        logger.error("database_stats_error", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get database stats: {str(e)}")
