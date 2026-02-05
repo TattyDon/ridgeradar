@@ -137,6 +137,93 @@ class Event(Base, TimestampMixin):
         return f"<Event {self.name} ({self.scheduled_start})>"
 
 
+class EventResult(Base):
+    """
+    Actual match outcome and statistics.
+
+    CRITICAL for Phase 2+ validation:
+    - Over/Under markets need actual goals to validate
+    - Correct Score markets need exact scoreline
+    - HT/FT markets need half-time and full-time scores
+    - General statistics help understand market efficiency
+
+    Without this data, we cannot properly validate:
+    1. Whether high-scoring O/U 2.5 markets actually had edge
+    2. CLV analysis for different market types
+    3. Sport-specific pattern analysis
+    """
+
+    __tablename__ = "event_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("events.id"), nullable=False, unique=True
+    )
+
+    # Core result (applicable to all sports)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="PENDING",
+        doc="PENDING, COMPLETED, ABANDONED, POSTPONED"
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Football-specific scores
+    home_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    away_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    home_ht_score: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, doc="Half-time home score"
+    )
+    away_ht_score: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, doc="Half-time away score"
+    )
+
+    # Derived values (computed on insert for easy querying)
+    total_goals: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    btts: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True, doc="Both Teams To Score"
+    )
+
+    # Tennis-specific (sets won)
+    home_sets: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    away_sets: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Extended statistics (JSONB for flexibility)
+    statistics: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True,
+        doc="""
+        Sport-specific stats. Examples:
+        Football: {"corners": [5, 3], "cards": [2, 1], "shots": [12, 8]}
+        Tennis: {"set_scores": ["6-4", "3-6", "7-5"], "aces": [8, 5]}
+        """
+    )
+
+    # Metadata
+    source: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, doc="Data source: betfair, api-football, manual"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    event: Mapped["Event"] = relationship("Event")
+
+    __table_args__ = (
+        Index("idx_event_results_status", "status"),
+        Index("idx_event_results_total_goals", "total_goals", postgresql_where=(total_goals.isnot(None))),
+    )
+
+    def __repr__(self) -> str:
+        if self.home_score is not None:
+            return f"<EventResult {self.event_id}: {self.home_score}-{self.away_score}>"
+        return f"<EventResult {self.event_id}: {self.status}>"
+
+
 class Market(Base, TimestampMixin):
     """
     Betting market within an event.
@@ -486,6 +573,249 @@ class CompetitionStats(Base):
 
     def __repr__(self) -> str:
         return f"<CompetitionStats {self.competition_id} {self.stats_date} avg={self.avg_score}>"
+
+
+class MarketClosingData(Base):
+    """
+    Final state capture for market validation.
+
+    This is CRITICAL for Phase 1 analysis. We capture:
+    1. Final exploitability score before market goes in-play
+    2. Closing odds for each runner (the "fair price" benchmark)
+    3. Settlement result (for P&L calculation)
+
+    Without this data, we cannot validate the scoring strategy.
+    """
+
+    __tablename__ = "market_closing_data"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    market_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("markets.id"), nullable=False, unique=True
+    )
+
+    # Final score capture (before market goes in-play)
+    final_score_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("exploitability_scores.id"), nullable=True
+    )
+    final_score: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    score_captured_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Closing odds snapshot (last prices before event starts)
+    closing_snapshot_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("market_snapshots.id"), nullable=True
+    )
+    closing_odds: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True,
+        doc="""
+        Format: {
+            "captured_at": "2024-01-15T14:58:00Z",
+            "runners": [
+                {
+                    "runner_id": 12345,
+                    "name": "Team A",
+                    "back_price": 2.50,
+                    "lay_price": 2.54,
+                    "last_traded": 2.52,
+                    "total_matched": 45000.00
+                }
+            ],
+            "total_matched": 120000.00
+        }
+        """
+    )
+    odds_captured_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    minutes_to_start: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+        doc="Minutes before event start when closing odds captured"
+    )
+
+    # Settlement result (captured after event ends)
+    settled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    result: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True,
+        doc="""
+        Format: {
+            "winner_runner_id": 12345,
+            "winner_name": "Team A",
+            "runners": [
+                {"runner_id": 12345, "status": "WINNER"},
+                {"runner_id": 12346, "status": "LOSER"},
+                {"runner_id": 12347, "status": "LOSER"}
+            ]
+        }
+        """
+    )
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    market: Mapped["Market"] = relationship("Market")
+    final_score_record: Mapped["ExploitabilityScore | None"] = relationship(
+        "ExploitabilityScore", foreign_keys=[final_score_id]
+    )
+    closing_snapshot: Mapped["MarketSnapshot | None"] = relationship(
+        "MarketSnapshot", foreign_keys=[closing_snapshot_id]
+    )
+
+    __table_args__ = (
+        Index("idx_closing_data_score", "final_score", postgresql_where=(final_score.isnot(None))),
+        Index("idx_closing_data_unsettled", "market_id", postgresql_where=(settled_at.is_(None))),
+    )
+
+    def __repr__(self) -> str:
+        return f"<MarketClosingData market={self.market_id} score={self.final_score} settled={self.settled_at is not None}>"
+
+
+class ShadowDecision(Base):
+    """
+    Hypothetical trading decision for Phase 2 validation.
+
+    This is the CORE of Phase 2 shadow trading. Every time the system
+    would trigger a trade, we log it here WITHOUT actually placing the bet.
+
+    After 500+ decisions per niche, we can calculate:
+    1. Theoretical ROI (did our selections win?)
+    2. CLV (Closing Line Value) - were we getting good prices?
+    3. Edge decay - is the edge stable over time?
+    4. Cost-adjusted P&L - would we have profited after costs?
+
+    Strategy Document Reference:
+    - Phase 2 requires 2,000+ total shadow decisions
+    - Need 500+ decisions per candidate niche
+    - Must track to settlement and calculate realistic P&L
+    """
+
+    __tablename__ = "shadow_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # What we would have bet on
+    market_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("markets.id"), nullable=False
+    )
+    runner_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("runners.id"), nullable=False
+    )
+    decision_type: Mapped[str] = mapped_column(
+        String(10), nullable=False, doc="BACK or LAY"
+    )
+
+    # Why we would have bet (the trigger)
+    score_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("exploitability_scores.id"), nullable=False
+    )
+    trigger_score: Mapped[Decimal] = mapped_column(
+        Numeric(6, 2), nullable=False, doc="Score that triggered this decision"
+    )
+    trigger_reason: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, doc="e.g. 'Score 72 > threshold 55, O/U 2.5 market'"
+    )
+
+    # Entry conditions at decision time
+    decision_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    minutes_to_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    entry_back_price: Mapped[Decimal] = mapped_column(
+        Numeric(8, 2), nullable=False, doc="Back price at decision time"
+    )
+    entry_lay_price: Mapped[Decimal] = mapped_column(
+        Numeric(8, 2), nullable=False, doc="Lay price at decision time"
+    )
+    entry_spread: Mapped[Decimal] = mapped_column(
+        Numeric(6, 4), nullable=False, doc="Spread at decision time"
+    )
+    available_to_back: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True, doc="Volume available to back"
+    )
+    available_to_lay: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True, doc="Volume available to lay"
+    )
+
+    # Theoretical stake (what we would have bet)
+    theoretical_stake: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=10.00,
+        doc="Hypothetical stake for P&L calculation"
+    )
+
+    # Closing Line Value (captured later)
+    closing_back_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 2), nullable=True, doc="Final back price before kickoff"
+    )
+    closing_lay_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 2), nullable=True, doc="Final lay price before kickoff"
+    )
+    clv_percent: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 4), nullable=True,
+        doc="CLV = (closing_price - entry_price) / entry_price for backs"
+    )
+
+    # Outcome (captured after settlement)
+    outcome: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, doc="WIN, LOSE, VOID, PENDING"
+    )
+    settled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # P&L calculation (after settlement)
+    gross_pnl: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True, doc="P&L before costs"
+    )
+    commission: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True, doc="Estimated commission"
+    )
+    spread_cost: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True, doc="Cost of crossing spread"
+    )
+    net_pnl: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True, doc="P&L after all costs"
+    )
+
+    # Niche classification (for aggregation)
+    niche: Mapped[str | None] = mapped_column(
+        String(100), nullable=True,
+        doc="e.g. 'german_2_bundesliga_match_odds', 'spanish_segunda_over_under'"
+    )
+    competition_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("competitions.id"), nullable=True
+    )
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    market: Mapped["Market"] = relationship("Market")
+    runner: Mapped["Runner"] = relationship("Runner")
+    score: Mapped["ExploitabilityScore"] = relationship("ExploitabilityScore")
+    competition: Mapped["Competition | None"] = relationship("Competition")
+
+    __table_args__ = (
+        Index("idx_shadow_decisions_niche", "niche", "outcome"),
+        Index("idx_shadow_decisions_pending", "market_id", postgresql_where=(outcome == "PENDING")),
+        Index("idx_shadow_decisions_date", "decision_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ShadowDecision {self.decision_type} on runner {self.runner_id} @ {self.entry_back_price}>"
 
 
 class JobRun(Base):

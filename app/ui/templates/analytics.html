@@ -168,6 +168,36 @@
             </div>
         </div>
     </div>
+
+    <!-- Closing Data Capture (Phase 1 Validation) -->
+    <div class="col-12">
+        <div class="card border-info">
+            <div class="card-header d-flex justify-content-between align-items-center bg-info bg-opacity-10">
+                <h5 class="mb-0"><i class="bi bi-clipboard-data me-2"></i>Closing Data Capture</h5>
+                <span class="badge bg-info">Phase 1 Validation</span>
+            </div>
+            <div class="card-body" id="closing-summary-container">
+                <div class="text-center py-3">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settled High-Score Markets -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-check2-circle me-2"></i>Settled High-Score Markets</h5>
+                <span class="badge bg-secondary" id="settled-count">Loading...</span>
+            </div>
+            <div class="card-body p-0" id="closing-data-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -183,6 +213,8 @@
         loadOddsBands();
         loadRawMetrics();
         loadHighScores();
+        loadClosingSummary();
+        loadClosingData();
     });
 
     // Summary Stats
@@ -457,6 +489,94 @@
             document.getElementById('high-scores-container').innerHTML = html;
         } catch (e) {
             document.getElementById('high-scores-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load high scoring markets</div>';
+        }
+    }
+
+    // Closing Data Summary
+    async function loadClosingSummary() {
+        try {
+            const response = await fetch('/api/analytics/closing-data/summary');
+            const data = await response.json();
+
+            const html = `
+                <div class="row g-3 text-center">
+                    <div class="col-md-2">
+                        <div class="stat-number text-info">${data.total_captured}</div>
+                        <div class="stat-label">Total Captured</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number text-primary">${data.with_closing_odds}</div>
+                        <div class="stat-label">With Closing Odds</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number text-warning">${data.with_final_score}</div>
+                        <div class="stat-label">With Final Score</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number text-success">${data.with_results}</div>
+                        <div class="stat-label">With Results</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number" style="color: #22c55e;">${data.high_score_captured}</div>
+                        <div class="stat-label">High Score (55+)</div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="stat-number" style="color: #ffd700;">${data.excellent_score_captured}</div>
+                        <div class="stat-label">Excellent (70+)</div>
+                    </div>
+                </div>
+                <div class="mt-3 small text-muted">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Closing data is captured 5-15 minutes before event start. Results are captured after settlement.
+                    This data enables backtesting and strategy validation.
+                </div>
+            `;
+            document.getElementById('closing-summary-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('closing-summary-container').innerHTML =
+                '<div class="alert alert-warning m-0"><i class="bi bi-clock me-2"></i>Closing data capture not yet active. Run the market_closure task to start collecting.</div>';
+        }
+    }
+
+    // Closing Data Details
+    async function loadClosingData() {
+        try {
+            const response = await fetch('/api/analytics/closing-data/high-scores?min_score=55&limit=20');
+            const data = await response.json();
+
+            document.getElementById('settled-count').textContent = data.length + ' markets';
+
+            if (data.length === 0) {
+                document.getElementById('closing-data-container').innerHTML =
+                    '<div class="text-center text-muted py-4">No settled high-score markets yet. Data will appear after events finish.</div>';
+                return;
+            }
+
+            let html = '<table class="table table-sm table-hover mb-0"><thead><tr>' +
+                '<th>Competition</th><th>Event</th><th>Final Score</th><th>Closing Odds</th><th>Winner</th><th>Mins to Start</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const scoreClass = row.final_score >= 70 ? 'bg-success' : 'bg-primary';
+                const closingOdds = row.closing_back_price ? `${row.closing_back_price.toFixed(2)} / ${row.closing_lay_price?.toFixed(2) || '-'}` : '-';
+                const winner = row.winner || '<span class="text-muted">Pending</span>';
+                const settled = row.settled_at ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-clock text-muted"></i>';
+
+                html += `
+                    <tr>
+                        <td><small>${row.competition}</small></td>
+                        <td><small>${row.event}</small></td>
+                        <td><span class="badge ${scoreClass}">${row.final_score?.toFixed(1) || '-'}</span></td>
+                        <td><small>${closingOdds}</small></td>
+                        <td><small>${winner}</small> ${settled}</td>
+                        <td><small>${row.minutes_to_start || '-'} min</small></td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+            document.getElementById('closing-data-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('closing-data-container').innerHTML =
+                '<div class="alert alert-warning m-3">Closing data not yet available. Start the market closure task to capture this data.</div>';
         }
     }
 </script>

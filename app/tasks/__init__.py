@@ -21,6 +21,8 @@ celery_app = Celery(
         "app.tasks.profiling",
         "app.tasks.scoring",
         "app.tasks.competition_stats",
+        "app.tasks.market_closure",
+        "app.tasks.results",
     ],
 )
 
@@ -74,6 +76,30 @@ celery_app.conf.beat_schedule = {
     "aggregate-competition-stats": {
         "task": "aggregate_competition_stats",
         "schedule": crontab(minute=30),  # Every hour at :30
+        "options": {"expires": 3540},
+    },
+    # Market closure - capture closing odds every 2 minutes
+    "capture-closing-data": {
+        "task": "app.tasks.market_closure.capture_closing_data_task",
+        "schedule": 120.0,  # 2 minutes
+        "options": {"expires": 110},
+    },
+    # Results capture - check for settlements every 15 minutes
+    "capture-results": {
+        "task": "app.tasks.market_closure.capture_results_task",
+        "schedule": 900.0,  # 15 minutes
+        "options": {"expires": 840},
+    },
+    # Event results - capture match outcomes every 30 minutes
+    "capture-event-results": {
+        "task": "app.tasks.results.capture_event_results_task",
+        "schedule": 1800.0,  # 30 minutes
+        "options": {"expires": 1740},
+    },
+    # Enhance results with Correct Score data every hour at :45
+    "update-results-from-scores": {
+        "task": "app.tasks.results.update_results_from_scores_task",
+        "schedule": crontab(minute=45),  # Every hour at :45
         "options": {"expires": 3540},
     },
 }

@@ -47,10 +47,25 @@ global:
       - "Amateur"
 
   # Market types to track
+  # Strategy doc: "Less prominent market types - Over/Under, Correct Score ignored vs Match Odds"
+  # We capture multiple types to find which have the best exploitability scores
   enabled_market_types:
+    # Core markets (high liquidity)
     - MATCH_ODDS
     - OVER_UNDER_25
     - BOTH_TEAMS_TO_SCORE
+    # Secondary markets (potentially less efficient)
+    - CORRECT_SCORE
+    - HALF_TIME_FULL_TIME
+    - DRAW_NO_BET
+    - DOUBLE_CHANCE
+    # Handicap markets (different liquidity profile)
+    - ASIAN_HANDICAP
+    # Over/Under variants
+    - OVER_UNDER_05
+    - OVER_UNDER_15
+    - OVER_UNDER_35
+    - OVER_UNDER_45
 
   # Ingestion settings
   snapshot_interval_seconds: 60
