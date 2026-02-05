@@ -41,7 +41,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     container_name: ridgeradar-celery
-    command: celery -A app.tasks worker -l info -c 3
+    command: celery -A app.tasks worker -l info -c 3 -Q celery,odds,fixtures
     environment:
       - DATABASE_URL=postgresql+asyncpg://ridgeradar:password@db:5432/ridgeradar
       - DATABASE_URL_SYNC=postgresql://ridgeradar:password@db:5432/ridgeradar
