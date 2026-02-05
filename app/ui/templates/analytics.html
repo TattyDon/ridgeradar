@@ -169,6 +169,35 @@
         </div>
     </div>
 
+    <!-- Market Movers Summary -->
+    <div class="col-lg-6">
+        <div class="card analytics-card border-success">
+            <div class="card-header d-flex justify-content-between align-items-center bg-success bg-opacity-10">
+                <h5 class="mb-0"><i class="bi bi-arrow-up-circle text-success me-2"></i>Top Steamers</h5>
+                <a href="/movers" class="btn btn-sm btn-outline-success">View All</a>
+            </div>
+            <div class="card-body p-0" id="steamers-summary-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-success" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card analytics-card border-danger">
+            <div class="card-header d-flex justify-content-between align-items-center bg-danger bg-opacity-10">
+                <h5 class="mb-0"><i class="bi bi-arrow-down-circle text-danger me-2"></i>Top Drifters</h5>
+                <a href="/movers" class="btn btn-sm btn-outline-danger">View All</a>
+            </div>
+            <div class="card-body p-0" id="drifters-summary-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-danger" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Phase 2 Readiness Dashboard -->
     <div class="col-12">
         <div class="card border-warning">
@@ -258,6 +287,8 @@
         loadOddsBands();
         loadRawMetrics();
         loadHighScores();
+        loadSteamersSummary();
+        loadDriftersSummary();
         loadPhase2Readiness();
         loadNichePerformance();
         loadCLVAnalysis();
@@ -537,6 +568,84 @@
             document.getElementById('high-scores-container').innerHTML = html;
         } catch (e) {
             document.getElementById('high-scores-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load high scoring markets</div>';
+        }
+    }
+
+    // Steamers Summary
+    async function loadSteamersSummary() {
+        try {
+            const response = await fetch('/api/momentum/steamers?min_change=3&hours_ahead=24&limit=5');
+            const data = await response.json();
+
+            if (!response.ok || data.length === 0) {
+                document.getElementById('steamers-summary-container').innerHTML =
+                    '<div class="text-center text-muted py-4"><i class="bi bi-emoji-neutral"></i> No steamers detected</div>';
+                return;
+            }
+
+            let html = '<div class="list-group list-group-flush">';
+            for (const s of data) {
+                const change = s.change_2h || s.change_1h || s.change_30m || 0;
+                const sharpBadge = s.movement_strength === 'SHARP' ? '<span class="badge bg-warning text-dark ms-1">SHARP</span>' : '';
+                html += `
+                    <div class="list-group-item bg-transparent border-secondary py-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${s.runner_name}</strong>${sharpBadge}
+                                <br><small class="text-muted">${s.competition_name} | ${s.market_type}</small>
+                            </div>
+                            <div class="text-end">
+                                <span class="text-success fw-bold">${change.toFixed(1)}%</span>
+                                <br><small class="text-muted">${s.current_back.toFixed(2)}</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            html += '</div>';
+            document.getElementById('steamers-summary-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('steamers-summary-container').innerHTML =
+                '<div class="text-center text-muted py-4">Failed to load steamers</div>';
+        }
+    }
+
+    // Drifters Summary
+    async function loadDriftersSummary() {
+        try {
+            const response = await fetch('/api/momentum/drifters?min_change=3&hours_ahead=24&limit=5');
+            const data = await response.json();
+
+            if (!response.ok || data.length === 0) {
+                document.getElementById('drifters-summary-container').innerHTML =
+                    '<div class="text-center text-muted py-4"><i class="bi bi-emoji-neutral"></i> No drifters detected</div>';
+                return;
+            }
+
+            let html = '<div class="list-group list-group-flush">';
+            for (const d of data) {
+                const change = d.change_2h || d.change_1h || d.change_30m || 0;
+                const sharpBadge = d.movement_strength === 'SHARP' ? '<span class="badge bg-warning text-dark ms-1">SHARP</span>' : '';
+                html += `
+                    <div class="list-group-item bg-transparent border-secondary py-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${d.runner_name}</strong>${sharpBadge}
+                                <br><small class="text-muted">${d.competition_name} | ${d.market_type}</small>
+                            </div>
+                            <div class="text-end">
+                                <span class="text-danger fw-bold">+${change.toFixed(1)}%</span>
+                                <br><small class="text-muted">${d.current_back.toFixed(2)}</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            html += '</div>';
+            document.getElementById('drifters-summary-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('drifters-summary-container').innerHTML =
+                '<div class="text-center text-muted py-4">Failed to load drifters</div>';
         }
     }
 
