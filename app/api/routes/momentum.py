@@ -277,6 +277,99 @@ async def get_steamers(
         raise HTTPException(status_code=500, detail=f"Failed to get steamers: {str(e)}")
 
 
+@router.get("/diagnostics")
+async def get_momentum_diagnostics(
+    db: AsyncSession = Depends(get_db),
+    hours_ahead: int = Query(24, ge=1, le=72),
+):
+    """
+    Diagnostic endpoint showing data availability for momentum analysis.
+
+    Helps understand why there might be 0 movers detected.
+    """
+    from sqlalchemy import text
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(hours=hours_ahead)
+
+    try:
+        # Check snapshot distribution
+        result = await db.execute(text("""
+            SELECT
+                CASE
+                    WHEN captured_at > :now - interval '30 minutes' THEN 'a_last_30m'
+                    WHEN captured_at > :now - interval '1 hour' THEN 'b_30m_to_1h'
+                    WHEN captured_at > :now - interval '2 hours' THEN 'c_1h_to_2h'
+                    WHEN captured_at > :now - interval '4 hours' THEN 'd_2h_to_4h'
+                    ELSE 'e_older'
+                END as time_bucket,
+                COUNT(DISTINCT market_id) as unique_markets,
+                COUNT(*) as total_snapshots
+            FROM market_snapshots
+            WHERE captured_at > :now - interval '5 hours'
+            GROUP BY 1
+            ORDER BY 1
+        """), {"now": now})
+
+        snapshot_distribution = {row[0]: {"markets": row[1], "snapshots": row[2]} for row in result}
+
+        # Check markets with comparable data (both current AND historical)
+        result2 = await db.execute(text("""
+            WITH current_markets AS (
+                SELECT DISTINCT market_id
+                FROM market_snapshots
+                WHERE captured_at > :now - interval '30 minutes'
+            ),
+            historical_markets AS (
+                SELECT DISTINCT market_id
+                FROM market_snapshots
+                WHERE captured_at BETWEEN :now - interval '90 minutes' AND :now - interval '30 minutes'
+            )
+            SELECT
+                (SELECT COUNT(*) FROM current_markets) as markets_with_current,
+                (SELECT COUNT(*) FROM historical_markets) as markets_with_historical,
+                (SELECT COUNT(*) FROM current_markets c
+                 JOIN historical_markets h ON c.market_id = h.market_id) as markets_with_both
+        """), {"now": now})
+
+        row = result2.fetchone()
+
+        # Check active markets in time window
+        result3 = await db.execute(text("""
+            SELECT COUNT(*)
+            FROM markets m
+            JOIN events e ON m.event_id = e.id
+            WHERE e.scheduled_start > :now
+              AND e.scheduled_start < :cutoff
+              AND m.status = 'OPEN'
+        """), {"now": now, "cutoff": cutoff})
+
+        active_markets = result3.scalar()
+
+        return {
+            "timestamp": now.isoformat(),
+            "hours_ahead": hours_ahead,
+            "active_markets_in_window": active_markets,
+            "markets_with_current_snapshot": row[0] if row else 0,
+            "markets_with_historical_snapshot": row[1] if row else 0,
+            "markets_with_both_for_comparison": row[2] if row else 0,
+            "snapshot_distribution": snapshot_distribution,
+            "explanation": {
+                "a_last_30m": "Snapshots from the last 30 minutes (current prices)",
+                "b_30m_to_1h": "Snapshots from 30-60 mins ago (for 30m comparison)",
+                "c_1h_to_2h": "Snapshots from 1-2 hours ago (for 1h/2h comparison)",
+                "d_2h_to_4h": "Snapshots from 2-4 hours ago (for 4h comparison)",
+                "e_older": "Older snapshots (not used for momentum)",
+            },
+            "note": "For momentum detection, markets need snapshots from both current AND historical timeframes"
+        }
+
+    except Exception as e:
+        logger.error("momentum_diagnostics_error", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get diagnostics: {str(e)}")
+
+
 @router.get("/drifters", response_model=list[RunnerMovement])
 async def get_drifters(
     db: AsyncSession = Depends(get_db),
