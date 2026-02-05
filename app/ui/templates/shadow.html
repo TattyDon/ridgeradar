@@ -420,7 +420,13 @@
             const response = await fetch(url);
             const data = await response.json();
 
-            if (data.length === 0) {
+            // Handle error responses
+            if (!response.ok) {
+                console.error('API Error:', data);
+                throw new Error(data.detail || 'API request failed');
+            }
+
+            if (!Array.isArray(data) || data.length === 0) {
                 document.getElementById('decisions-container').innerHTML = `
                     <div class="text-center text-muted py-4">
                         <i class="bi bi-inbox fs-1"></i>
