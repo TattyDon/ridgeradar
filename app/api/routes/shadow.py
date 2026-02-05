@@ -265,7 +265,7 @@ async def get_performance(db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.get("/decisions", response_model=list[ShadowDecisionItem])
+@router.get("/decisions")
 async def get_decisions(
     db: AsyncSession = Depends(get_db),
     outcome: Optional[str] = Query(None, description="Filter by outcome"),
@@ -314,6 +314,10 @@ async def get_decisions(
         "limit": limit,
     })
     rows = result.fetchall()
+
+    # Return empty list if no decisions yet
+    if not rows:
+        return []
 
     return [
         ShadowDecisionItem(
@@ -488,7 +492,7 @@ async def get_daily_pnl(
 
     All figures are THEORETICAL.
     """
-    query = text("""
+    query = text(f"""
         SELECT
             DATE(decision_at) AS date,
             COUNT(*) AS decisions,
@@ -498,11 +502,11 @@ async def get_daily_pnl(
             SUM(SUM(net_pnl)) OVER (ORDER BY DATE(decision_at)) AS cumulative_pnl
         FROM shadow_decisions
         WHERE
-            decision_at >= CURRENT_DATE - INTERVAL ':days days'
+            decision_at >= CURRENT_DATE - INTERVAL '{days} days'
             AND outcome IN ('WIN', 'LOSE')
         GROUP BY DATE(decision_at)
         ORDER BY DATE(decision_at)
-    """.replace(":days", str(days)))
+    """)
 
     result = await db.execute(query)
     rows = result.fetchall()
@@ -517,7 +521,7 @@ async def get_daily_pnl(
                 "wins": row.wins,
                 "losses": row.losses,
                 "net_pnl": float(row.net_pnl),
-                "cumulative_pnl": float(row.cumulative_pnl),
+                "cumulative_pnl": float(row.cumulative_pnl) if row.cumulative_pnl else 0,
             }
             for row in rows
         ],
