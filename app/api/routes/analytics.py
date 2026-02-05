@@ -153,6 +153,57 @@ class ClosingDataItem(BaseModel):
     settled_at: str | None
 
 
+class Phase2ReadinessMetrics(BaseModel):
+    """Phase 2 readiness metrics."""
+    # Data volume
+    total_closing_data: int
+    total_with_results: int
+    high_score_markets: int  # 30+
+    excellent_score_markets: int  # 55+
+
+    # Targets
+    closing_data_target: int
+    results_target: int
+    high_score_target: int
+
+    # Progress percentages
+    closing_data_pct: float
+    results_pct: float
+    high_score_pct: float
+
+    # Overall readiness
+    overall_readiness_pct: float
+    ready_for_phase2: bool
+
+    # Days of data
+    days_collecting: int
+    estimated_days_remaining: int | None
+
+
+class NichePerformance(BaseModel):
+    """Niche performance metrics."""
+    niche: str  # competition + market_type
+    competition: str
+    market_type: str
+    total_markets: int
+    avg_score: float
+    high_score_count: int
+    with_closing_data: int
+    with_results: int
+    consistency_score: float  # std dev based
+
+
+class CLVAnalysis(BaseModel):
+    """CLV analysis for scored markets."""
+    score_band: str
+    market_count: int
+    avg_score: float
+    with_clv_data: int
+    # These will be populated as we get more data
+    positive_clv_count: int | None
+    avg_clv_percent: float | None
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -768,3 +819,221 @@ async def get_closing_data_high_scores(
         ))
 
     return items
+
+
+# ============================================================================
+# Phase 2 Readiness Endpoints
+# ============================================================================
+
+@router.get("/phase2-readiness", response_model=Phase2ReadinessMetrics)
+async def get_phase2_readiness(db: AsyncSession = Depends(get_db)):
+    """
+    Get Phase 2 readiness metrics.
+
+    Tracks progress toward the data requirements needed before starting
+    shadow trading (Phase 2).
+
+    Targets:
+    - 500+ markets with closing data
+    - 200+ markets with settlement results
+    - 50+ high-score (30+) markets with closing data
+    """
+    # Define targets
+    CLOSING_DATA_TARGET = 500
+    RESULTS_TARGET = 200
+    HIGH_SCORE_TARGET = 50
+
+    query = text("""
+        WITH stats AS (
+            SELECT
+                COUNT(*) AS total_closing_data,
+                COUNT(*) FILTER (WHERE settled_at IS NOT NULL) AS total_with_results,
+                COUNT(*) FILTER (WHERE final_score >= 30) AS high_score_markets,
+                COUNT(*) FILTER (WHERE final_score >= 55) AS excellent_score_markets,
+                MIN(created_at) AS first_capture,
+                MAX(created_at) AS last_capture
+            FROM market_closing_data
+        )
+        SELECT
+            total_closing_data,
+            total_with_results,
+            high_score_markets,
+            excellent_score_markets,
+            EXTRACT(DAY FROM (last_capture - first_capture)) + 1 AS days_collecting
+        FROM stats
+    """)
+
+    result = await db.execute(query)
+    row = result.one()
+
+    total_closing = row.total_closing_data or 0
+    total_results = row.total_with_results or 0
+    high_score = row.high_score_markets or 0
+    excellent = row.excellent_score_markets or 0
+    days = int(row.days_collecting or 1)
+
+    # Calculate progress percentages
+    closing_pct = min(100, (total_closing / CLOSING_DATA_TARGET) * 100)
+    results_pct = min(100, (total_results / RESULTS_TARGET) * 100)
+    high_score_pct = min(100, (high_score / HIGH_SCORE_TARGET) * 100)
+
+    # Overall readiness is weighted average
+    overall_pct = (closing_pct * 0.3 + results_pct * 0.4 + high_score_pct * 0.3)
+
+    # Estimate days remaining based on current rate
+    estimated_days = None
+    if days > 0 and total_closing > 0:
+        daily_rate = total_closing / days
+        if daily_rate > 0:
+            remaining_closing = max(0, CLOSING_DATA_TARGET - total_closing)
+            estimated_days = int(remaining_closing / daily_rate) + 1
+
+    return Phase2ReadinessMetrics(
+        total_closing_data=total_closing,
+        total_with_results=total_results,
+        high_score_markets=high_score,
+        excellent_score_markets=excellent,
+        closing_data_target=CLOSING_DATA_TARGET,
+        results_target=RESULTS_TARGET,
+        high_score_target=HIGH_SCORE_TARGET,
+        closing_data_pct=round(closing_pct, 1),
+        results_pct=round(results_pct, 1),
+        high_score_pct=round(high_score_pct, 1),
+        overall_readiness_pct=round(overall_pct, 1),
+        ready_for_phase2=overall_pct >= 100,
+        days_collecting=days,
+        estimated_days_remaining=estimated_days,
+    )
+
+
+@router.get("/niche-performance", response_model=list[NichePerformance])
+async def get_niche_performance(
+    db: AsyncSession = Depends(get_db),
+    min_markets: int = Query(10, description="Minimum markets to include niche"),
+    limit: int = Query(20, ge=1, le=50),
+):
+    """
+    Get niche performance analysis.
+
+    Identifies competition + market_type combinations that consistently
+    produce high scores. These are prime targets for Phase 2.
+    """
+    query = text("""
+        WITH niche_stats AS (
+            SELECT
+                c.name AS competition,
+                m.market_type,
+                c.name || ' - ' || m.market_type AS niche,
+                COUNT(DISTINCT es.market_id) AS total_markets,
+                AVG(es.total_score) AS avg_score,
+                STDDEV(es.total_score) AS score_stddev,
+                COUNT(*) FILTER (WHERE es.total_score >= 30) AS high_score_count,
+                COUNT(DISTINCT mcd.market_id) AS with_closing_data,
+                COUNT(DISTINCT mcd.market_id) FILTER (WHERE mcd.settled_at IS NOT NULL) AS with_results
+            FROM exploitability_scores es
+            JOIN markets m ON es.market_id = m.id
+            JOIN events e ON m.event_id = e.id
+            JOIN competitions c ON e.competition_id = c.id
+            LEFT JOIN market_closing_data mcd ON es.market_id = mcd.market_id
+            WHERE c.enabled = true
+            GROUP BY c.name, m.market_type
+            HAVING COUNT(DISTINCT es.market_id) >= :min_markets
+        )
+        SELECT
+            niche,
+            competition,
+            market_type,
+            total_markets,
+            ROUND(avg_score::numeric, 2) AS avg_score,
+            high_score_count,
+            with_closing_data,
+            with_results,
+            -- Consistency score: higher avg, lower std dev = more consistent
+            ROUND(
+                CASE
+                    WHEN score_stddev > 0 THEN avg_score / score_stddev
+                    ELSE avg_score
+                END::numeric, 2
+            ) AS consistency_score
+        FROM niche_stats
+        ORDER BY avg_score DESC
+        LIMIT :limit
+    """)
+
+    result = await db.execute(query, {"min_markets": min_markets, "limit": limit})
+    rows = result.all()
+
+    return [
+        NichePerformance(
+            niche=row.niche,
+            competition=row.competition,
+            market_type=row.market_type,
+            total_markets=row.total_markets,
+            avg_score=float(row.avg_score or 0),
+            high_score_count=row.high_score_count or 0,
+            with_closing_data=row.with_closing_data or 0,
+            with_results=row.with_results or 0,
+            consistency_score=float(row.consistency_score or 0),
+        )
+        for row in rows
+    ]
+
+
+@router.get("/clv-analysis", response_model=list[CLVAnalysis])
+async def get_clv_analysis(db: AsyncSession = Depends(get_db)):
+    """
+    Get CLV analysis by score band.
+
+    Shows how many markets in each score band have CLV data available.
+    As we accumulate more data, this will show whether high scores
+    correlate with positive CLV.
+
+    Note: Full CLV calculation requires shadow decisions with entry prices,
+    which will be populated in Phase 2. For now, this tracks data availability.
+    """
+    query = text("""
+        WITH score_bands AS (
+            SELECT
+                mcd.market_id,
+                mcd.final_score,
+                mcd.closing_odds,
+                mcd.settled_at,
+                CASE
+                    WHEN mcd.final_score >= 55 THEN 'Excellent (55+)'
+                    WHEN mcd.final_score >= 30 THEN 'High (30-55)'
+                    WHEN mcd.final_score >= 15 THEN 'Medium (15-30)'
+                    ELSE 'Low (<15)'
+                END AS score_band
+            FROM market_closing_data mcd
+            WHERE mcd.final_score IS NOT NULL
+        )
+        SELECT
+            score_band,
+            COUNT(*) AS market_count,
+            ROUND(AVG(final_score)::numeric, 2) AS avg_score,
+            COUNT(*) FILTER (WHERE closing_odds IS NOT NULL AND settled_at IS NOT NULL) AS with_clv_data
+        FROM score_bands
+        GROUP BY score_band
+        ORDER BY
+            CASE score_band
+                WHEN 'Excellent (55+)' THEN 1
+                WHEN 'High (30-55)' THEN 2
+                WHEN 'Medium (15-30)' THEN 3
+                ELSE 4
+            END
+    """)
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    return [
+        CLVAnalysis(
+            score_band=row.score_band,
+            market_count=row.market_count,
+            avg_score=float(row.avg_score or 0),
+            with_clv_data=row.with_clv_data or 0,
+            positive_clv_count=None,  # Will be populated in Phase 2
+            avg_clv_percent=None,  # Will be populated in Phase 2
+        )
+        for row in rows
+    ]

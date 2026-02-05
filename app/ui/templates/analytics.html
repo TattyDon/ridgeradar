@@ -169,6 +169,51 @@
         </div>
     </div>
 
+    <!-- Phase 2 Readiness Dashboard -->
+    <div class="col-12">
+        <div class="card border-warning">
+            <div class="card-header d-flex justify-content-between align-items-center bg-warning bg-opacity-10">
+                <h5 class="mb-0"><i class="bi bi-rocket-takeoff me-2"></i>Phase 2 Readiness</h5>
+                <span class="badge bg-warning text-dark" id="readiness-badge">Checking...</span>
+            </div>
+            <div class="card-body" id="phase2-readiness-container">
+                <div class="text-center py-3">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Niche Performance -->
+    <div class="col-lg-7">
+        <div class="card analytics-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-bullseye me-2"></i>Top Niches</h5>
+                <small class="text-muted">Competition + Market Type</small>
+            </div>
+            <div class="card-body p-0" id="niche-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CLV Analysis -->
+    <div class="col-lg-5">
+        <div class="card analytics-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>CLV Analysis</h5>
+                <small class="text-muted">By Score Band</small>
+            </div>
+            <div class="card-body p-0" id="clv-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Closing Data Capture (Phase 1 Validation) -->
     <div class="col-12">
         <div class="card border-info">
@@ -213,6 +258,9 @@
         loadOddsBands();
         loadRawMetrics();
         loadHighScores();
+        loadPhase2Readiness();
+        loadNichePerformance();
+        loadCLVAnalysis();
         loadClosingSummary();
         loadClosingData();
     });
@@ -489,6 +537,159 @@
             document.getElementById('high-scores-container').innerHTML = html;
         } catch (e) {
             document.getElementById('high-scores-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load high scoring markets</div>';
+        }
+    }
+
+    // Phase 2 Readiness
+    async function loadPhase2Readiness() {
+        try {
+            const response = await fetch('/api/analytics/phase2-readiness');
+            const data = await response.json();
+
+            const badgeClass = data.ready_for_phase2 ? 'bg-success' :
+                               data.overall_readiness_pct >= 50 ? 'bg-warning text-dark' : 'bg-secondary';
+            const badgeText = data.ready_for_phase2 ? 'Ready!' :
+                              `${data.overall_readiness_pct.toFixed(0)}% Complete`;
+            document.getElementById('readiness-badge').className = `badge ${badgeClass}`;
+            document.getElementById('readiness-badge').textContent = badgeText;
+
+            const html = `
+                <div class="row g-4">
+                    <div class="col-md-8">
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Closing Data</span>
+                                <span>${data.total_closing_data} / ${data.closing_data_target}</span>
+                            </div>
+                            <div class="progress" style="height: 20px;">
+                                <div class="progress-bar bg-info" style="width: ${data.closing_data_pct}%">${data.closing_data_pct.toFixed(0)}%</div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Settlement Results</span>
+                                <span>${data.total_with_results} / ${data.results_target}</span>
+                            </div>
+                            <div class="progress" style="height: 20px;">
+                                <div class="progress-bar bg-success" style="width: ${data.results_pct}%">${data.results_pct.toFixed(0)}%</div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>High-Score Markets (30+)</span>
+                                <span>${data.high_score_markets} / ${data.high_score_target}</span>
+                            </div>
+                            <div class="progress" style="height: 20px;">
+                                <div class="progress-bar bg-warning" style="width: ${data.high_score_pct}%">${data.high_score_pct.toFixed(0)}%</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 text-center">
+                        <div class="mb-2">
+                            <div class="display-4 ${data.ready_for_phase2 ? 'text-success' : 'text-warning'}">${data.overall_readiness_pct.toFixed(0)}%</div>
+                            <div class="text-muted">Overall Readiness</div>
+                        </div>
+                        <div class="small text-muted">
+                            <div><i class="bi bi-calendar me-1"></i>${data.days_collecting} days collecting</div>
+                            ${data.estimated_days_remaining ?
+                                `<div><i class="bi bi-hourglass me-1"></i>~${data.estimated_days_remaining} days remaining</div>` : ''}
+                        </div>
+                        <div class="mt-2">
+                            <span class="badge bg-primary">${data.excellent_score_markets} excellent (55+)</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 small text-muted border-top pt-2">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Phase 2 (Shadow Trading) begins when we have enough data to validate the scoring model.
+                    Target: 500+ closing data records, 200+ with settlement results, 50+ high-score markets.
+                </div>
+            `;
+            document.getElementById('phase2-readiness-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('phase2-readiness-container').innerHTML =
+                '<div class="alert alert-warning m-3">Phase 2 readiness data not yet available.</div>';
+        }
+    }
+
+    // Niche Performance
+    async function loadNichePerformance() {
+        try {
+            const response = await fetch('/api/analytics/niche-performance?min_markets=5&limit=15');
+            const data = await response.json();
+
+            if (data.length === 0) {
+                document.getElementById('niche-container').innerHTML =
+                    '<div class="text-center text-muted py-4">Not enough data yet. Need 5+ markets per niche.</div>';
+                return;
+            }
+
+            let html = '<table class="table table-sm table-hover mb-0"><thead><tr>' +
+                '<th>Niche</th><th>Markets</th><th>Avg Score</th><th>High (30+)</th><th>Consistency</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const scoreClass = row.avg_score >= 30 ? 'text-success' : row.avg_score >= 20 ? 'text-warning' : 'text-secondary';
+                const consistencyClass = row.consistency_score >= 2 ? 'text-success' : row.consistency_score >= 1 ? 'text-warning' : 'text-secondary';
+
+                html += `
+                    <tr>
+                        <td>
+                            <div><strong>${row.competition}</strong></div>
+                            <small class="text-muted">${row.market_type}</small>
+                        </td>
+                        <td>${row.total_markets}</td>
+                        <td class="${scoreClass} fw-bold">${row.avg_score.toFixed(1)}</td>
+                        <td><span class="badge bg-success">${row.high_score_count}</span></td>
+                        <td class="${consistencyClass}">${row.consistency_score.toFixed(1)}</td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+            html += '<div class="px-3 py-2 small text-muted bg-dark"><i class="bi bi-lightbulb me-1"></i>Higher consistency = more predictable scores. Focus on high avg + high consistency for Phase 2.</div>';
+            document.getElementById('niche-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('niche-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load niche performance</div>';
+        }
+    }
+
+    // CLV Analysis
+    async function loadCLVAnalysis() {
+        try {
+            const response = await fetch('/api/analytics/clv-analysis');
+            const data = await response.json();
+
+            if (data.length === 0) {
+                document.getElementById('clv-container').innerHTML =
+                    '<div class="text-center text-muted py-4">No closing data with scores yet.</div>';
+                return;
+            }
+
+            let html = '<table class="table table-sm mb-0"><thead><tr>' +
+                '<th>Score Band</th><th>Markets</th><th>With CLV Data</th><th>Status</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const bandClass = row.score_band.includes('Excellent') ? 'text-success' :
+                                  row.score_band.includes('High') ? 'text-primary' :
+                                  row.score_band.includes('Medium') ? 'text-warning' : 'text-secondary';
+
+                const clvStatus = row.with_clv_data > 0 ?
+                    `<span class="badge bg-success">${row.with_clv_data} ready</span>` :
+                    '<span class="badge bg-secondary">Waiting</span>';
+
+                html += `
+                    <tr>
+                        <td class="${bandClass}">${row.score_band}</td>
+                        <td>${row.market_count}</td>
+                        <td>${row.with_clv_data}</td>
+                        <td>${clvStatus}</td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+            html += '<div class="px-3 py-2 small text-muted bg-dark"><i class="bi bi-graph-up me-1"></i>CLV = (Entry Price - Closing Price) / Closing Price. Positive CLV indicates edge.</div>';
+            document.getElementById('clv-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('clv-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load CLV analysis</div>';
         }
     }
 
