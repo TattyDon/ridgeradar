@@ -55,11 +55,11 @@ celery_app.conf.beat_schedule = {
         "schedule": 900.0,  # 15 minutes
         "options": {"expires": 840},  # Expire before next run
     },
-    # Snapshot capture - every 60 seconds
+    # Snapshot capture - every 5 minutes (needs time to process 1000s of markets)
     "capture-snapshots": {
         "task": "app.tasks.snapshots.capture_snapshots",
-        "schedule": 60.0,
-        "options": {"expires": 55},
+        "schedule": 300.0,  # 5 minutes
+        "options": {"expires": 280},
     },
     # Daily profiling - every hour at :05
     "compute-profiles": {

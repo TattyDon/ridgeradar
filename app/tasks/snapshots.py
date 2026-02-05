@@ -19,11 +19,11 @@ from app.tasks import celery_app
 logger = structlog.get_logger(__name__)
 
 
-@celery_app.task(bind=True, soft_time_limit=55, time_limit=60, queue="odds")
+@celery_app.task(bind=True, soft_time_limit=280, time_limit=300, queue="odds")
 def capture_snapshots(self, market_ids: list[int] | None = None):
     """
-    Scheduled: Every 60 seconds
-    Timeout: 45 seconds
+    Scheduled: Every 60 seconds (but may take up to 5 mins with many markets)
+    Timeout: 5 minutes (to handle 1000+ markets with small batches)
 
     Process:
     1. Get active markets (status='OPEN', not in_play, competition enabled)
@@ -82,7 +82,7 @@ async def _capture_snapshots_async(task, market_ids: list[int] | None = None):
                     betfair_client=betfair,
                     session=session,
                     ladder_depth=1,  # Only best price to avoid TOO_MUCH_DATA
-                    max_markets_per_batch=20,  # Increased from 5 - safe with ladder_depth=1
+                    max_markets_per_batch=5,  # Reduced - 20 was causing TOO_MUCH_DATA errors
                 )
                 stats = await snapshot_service.capture_snapshots(market_ids)
 
