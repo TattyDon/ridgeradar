@@ -150,16 +150,36 @@ class MarketDiscoveryService:
         global_config = self.config.get("global", {})
         enabled_sports = global_config.get("enabled_sports", ["soccer", "tennis"])
 
-        # Sport name to Betfair ID mapping
+        # Sport name to Betfair Event Type ID mapping
+        # Full list at: https://docs.developer.betfair.com/display/1smk3cen4v3lu3yomq5qye0ni/Betting+Type+Definitions
         sport_mapping = {
+            # Core sports
             "soccer": "1",
             "tennis": "2",
             "golf": "3",
             "cricket": "4",
             "rugby_union": "5",
+            "rugby": "5",
             "boxing": "6",
             "horse_racing": "7",
             "motor_sport": "8",
+            # Team sports with secondary league potential
+            "basketball": "7522",
+            "ice_hockey": "7524",
+            "volleyball": "998917",
+            "handball": "468328",
+            "baseball": "7511",
+            "american_football": "6423",
+            # Individual sports
+            "table_tennis": "2378961",
+            "darts": "3503",
+            "snooker": "6422",
+            "cycling": "11",
+            "athletics": "3988",
+            # Esports and others
+            "esports": "27454571",
+            "mma": "26420387",
+            "greyhounds": "4339",
         }
 
         sports = []

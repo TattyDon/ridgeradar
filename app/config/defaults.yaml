@@ -15,26 +15,36 @@
 
 global:
   # Enabled sports for tracking
+  # Philosophy: Enable sports where secondary leagues/competitions may be inefficient
+  # The volume penalty will automatically filter out efficient markets (NBA, NHL, etc.)
   enabled_sports:
-    - soccer
-    - tennis
+    # Core sports with secondary league potential
+    - soccer           # 2. Bundesliga, Segunda División, Copa del Rey, etc.
+    - tennis           # Challengers, ITF events
+    - basketball       # European leagues (not NBA - will score low due to volume)
+    - ice_hockey       # European leagues (not NHL - will score low due to volume)
+    - handball         # European leagues - lower mainstream attention
+    - volleyball       # Lower liquidity overall
+    # Niche sports with potential
+    - table_tennis     # Very active on Betfair, less professional attention
+    - darts            # PDC events vs lower-tier events
+    - snooker          # Ranking events vs minor events
+    - esports          # Growing market, potentially inefficient
 
   # Hard exclusions - only things that would waste API quota
   # These are NOT filtered by score, they're never ingested at all
   hard_exclusions:
-    # Sports we don't want at all (saves API calls)
+    # Sports we don't want (too efficient or incompatible market structure)
     sports:
-      - basketball
-      - american_football
-      - golf
-      - cricket
-      - rugby
-      - baseball
-      - ice_hockey
-      - darts
-      - snooker
-      - boxing
-      - mma
+      - american_football  # NFL is extremely efficient
+      - golf               # Complex markets, different structure
+      - horse_racing       # Different beast entirely, very efficient
+      - greyhounds         # Same as horse racing
+      - baseball           # MLB is efficient, structure different
+      - rugby              # Limited Betfair liquidity
+      - cricket            # Could enable later for IPL/T20, but complex
+      - boxing             # Infrequent, hard to build patterns
+      - mma                # Infrequent, hard to build patterns
     # Competition patterns to skip (international tournaments with unpredictable scheduling)
     competition_patterns:
       - "Friendly"
@@ -75,8 +85,8 @@ global:
   lookahead_hours: 72  # How far ahead to fetch events
   ignore_inplay: true  # Don't capture in-play markets (Phase 1)
 
-  # Universe limits
-  max_markets_active: 500
+  # Universe limits (increased for multi-sport coverage)
+  max_markets_active: 1500
   max_events_per_competition: 50
 
 # Scoring configuration
