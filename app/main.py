@@ -9,7 +9,7 @@ from pathlib import Path
 
 import structlog
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -143,7 +143,7 @@ async def admin_page(request: Request):
 async def not_found_handler(request: Request, exc):
     """Custom 404 handler."""
     if request.url.path.startswith("/api/"):
-        return {"detail": "Not found"}
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
     return templates.TemplateResponse(
         "error.html",
         {"request": request, "title": "Not Found", "error": "Page not found"},
@@ -156,7 +156,7 @@ async def server_error_handler(request: Request, exc):
     """Custom 500 handler."""
     logger.error("server_error", path=request.url.path, error=str(exc))
     if request.url.path.startswith("/api/"):
-        return {"detail": "Internal server error"}
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
     return templates.TemplateResponse(
         "error.html",
         {"request": request, "title": "Error", "error": "Internal server error"},
