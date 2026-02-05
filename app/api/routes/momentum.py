@@ -376,6 +376,7 @@ async def get_momentum_diagnostics(
             }
 
         # Get recent job runs with full metadata
+        # Note: The model uses job_metadata as Python attr, but DB column is "metadata"
         result5 = await db.execute(text("""
             SELECT
                 job_name,
@@ -384,7 +385,7 @@ async def get_momentum_diagnostics(
                 started_at,
                 completed_at,
                 error_message,
-                job_metadata
+                metadata
             FROM job_runs
             WHERE job_name = 'capture_snapshots'
             ORDER BY started_at DESC
