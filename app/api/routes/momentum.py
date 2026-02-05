@@ -293,24 +293,32 @@ async def get_momentum_diagnostics(
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(hours=hours_ahead)
 
+    # Pre-compute all time boundaries to avoid asyncpg type issues
+    t_30m = now - timedelta(minutes=30)
+    t_1h = now - timedelta(hours=1)
+    t_2h = now - timedelta(hours=2)
+    t_4h = now - timedelta(hours=4)
+    t_5h = now - timedelta(hours=5)
+    t_90m = now - timedelta(minutes=90)
+
     try:
         # Check snapshot distribution
         result = await db.execute(text("""
             SELECT
                 CASE
-                    WHEN captured_at > :now - interval '30 minutes' THEN 'a_last_30m'
-                    WHEN captured_at > :now - interval '1 hour' THEN 'b_30m_to_1h'
-                    WHEN captured_at > :now - interval '2 hours' THEN 'c_1h_to_2h'
-                    WHEN captured_at > :now - interval '4 hours' THEN 'd_2h_to_4h'
+                    WHEN captured_at > :t_30m THEN 'a_last_30m'
+                    WHEN captured_at > :t_1h THEN 'b_30m_to_1h'
+                    WHEN captured_at > :t_2h THEN 'c_1h_to_2h'
+                    WHEN captured_at > :t_4h THEN 'd_2h_to_4h'
                     ELSE 'e_older'
                 END as time_bucket,
                 COUNT(DISTINCT market_id) as unique_markets,
                 COUNT(*) as total_snapshots
             FROM market_snapshots
-            WHERE captured_at > :now - interval '5 hours'
+            WHERE captured_at > :t_5h
             GROUP BY 1
             ORDER BY 1
-        """), {"now": now})
+        """), {"t_30m": t_30m, "t_1h": t_1h, "t_2h": t_2h, "t_4h": t_4h, "t_5h": t_5h})
 
         snapshot_distribution = {row[0]: {"markets": row[1], "snapshots": row[2]} for row in result}
 
@@ -319,19 +327,19 @@ async def get_momentum_diagnostics(
             WITH current_markets AS (
                 SELECT DISTINCT market_id
                 FROM market_snapshots
-                WHERE captured_at > :now - interval '30 minutes'
+                WHERE captured_at > :t_30m
             ),
             historical_markets AS (
                 SELECT DISTINCT market_id
                 FROM market_snapshots
-                WHERE captured_at BETWEEN :now - interval '90 minutes' AND :now - interval '30 minutes'
+                WHERE captured_at BETWEEN :t_90m AND :t_30m
             )
             SELECT
                 (SELECT COUNT(*) FROM current_markets) as markets_with_current,
                 (SELECT COUNT(*) FROM historical_markets) as markets_with_historical,
                 (SELECT COUNT(*) FROM current_markets c
                  JOIN historical_markets h ON c.market_id = h.market_id) as markets_with_both
-        """), {"now": now})
+        """), {"t_30m": t_30m, "t_90m": t_90m})
 
         row = result2.fetchone()
 

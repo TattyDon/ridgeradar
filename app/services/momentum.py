@@ -104,6 +104,16 @@ class MomentumAnalyzer:
         cutoff = now + timedelta(hours=hours_ahead)
         min_change = min_change_pct / 100.0
 
+        # Pre-compute all time boundaries to avoid asyncpg type casting issues
+        t_25m = now - timedelta(minutes=25)
+        t_45m = now - timedelta(minutes=45)
+        t_75m = now - timedelta(minutes=75)
+        t_90m = now - timedelta(minutes=90)
+        t_150m = now - timedelta(minutes=150)
+        t_180m = now - timedelta(minutes=180)
+        t_300m = now - timedelta(minutes=300)
+        t_5h = now - timedelta(hours=5)
+
         # Query to get price movements
         # Compares current snapshot to snapshots from 30m, 1h, 2h, 4h ago
         query = text("""
@@ -131,22 +141,18 @@ class MomentumAnalyzer:
                     ms.total_matched,
                     ms.ladder_data,
                     CASE
-                        WHEN ms.captured_at >= :now - interval '45 minutes'
-                             AND ms.captured_at < :now - interval '25 minutes' THEN '30m'
-                        WHEN ms.captured_at >= :now - interval '75 minutes'
-                             AND ms.captured_at < :now - interval '45 minutes' THEN '1h'
-                        WHEN ms.captured_at >= :now - interval '150 minutes'
-                             AND ms.captured_at < :now - interval '90 minutes' THEN '2h'
-                        WHEN ms.captured_at >= :now - interval '300 minutes'
-                             AND ms.captured_at < :now - interval '180 minutes' THEN '4h'
+                        WHEN ms.captured_at >= :t_45m AND ms.captured_at < :t_25m THEN '30m'
+                        WHEN ms.captured_at >= :t_75m AND ms.captured_at < :t_45m THEN '1h'
+                        WHEN ms.captured_at >= :t_150m AND ms.captured_at < :t_90m THEN '2h'
+                        WHEN ms.captured_at >= :t_300m AND ms.captured_at < :t_180m THEN '4h'
                     END as time_bucket
                 FROM market_snapshots ms
                 JOIN markets m ON ms.market_id = m.id
                 JOIN events e ON m.event_id = e.id
                 WHERE e.scheduled_start > :now
                   AND e.scheduled_start < :cutoff
-                  AND ms.captured_at >= :now - interval '5 hours'
-                  AND ms.captured_at < :now - interval '25 minutes'
+                  AND ms.captured_at >= :t_5h
+                  AND ms.captured_at < :t_25m
                 ORDER BY ms.market_id, time_bucket, ms.captured_at DESC
             ),
             price_comparison AS (
@@ -185,6 +191,14 @@ class MomentumAnalyzer:
         result = await self.db.execute(query, {
             "now": now,
             "cutoff": cutoff,
+            "t_25m": t_25m,
+            "t_45m": t_45m,
+            "t_75m": t_75m,
+            "t_90m": t_90m,
+            "t_150m": t_150m,
+            "t_180m": t_180m,
+            "t_300m": t_300m,
+            "t_5h": t_5h,
         })
         rows = result.fetchall()
 
