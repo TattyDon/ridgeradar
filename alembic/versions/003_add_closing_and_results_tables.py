@@ -15,8 +15,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '002_closing_results'
-down_revision = None  # UPDATE THIS to your actual previous migration ID
+revision = '003_closing_results'
+down_revision = '0002'  # Previous migration
 branch_labels = None
 depends_on = None
 
