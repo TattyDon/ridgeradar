@@ -118,8 +118,8 @@ class MomentumAnalyzer:
                 FROM market_snapshots ms
                 JOIN markets m ON ms.market_id = m.id
                 JOIN events e ON m.event_id = e.id
-                WHERE e.start_time > :now
-                  AND e.start_time < :cutoff
+                WHERE e.scheduled_start > :now
+                  AND e.scheduled_start < :cutoff
                   AND m.status = 'OPEN'
                 ORDER BY ms.market_id, ms.captured_at DESC
             ),
@@ -143,8 +143,8 @@ class MomentumAnalyzer:
                 FROM market_snapshots ms
                 JOIN markets m ON ms.market_id = m.id
                 JOIN events e ON m.event_id = e.id
-                WHERE e.start_time > :now
-                  AND e.start_time < :cutoff
+                WHERE e.scheduled_start > :now
+                  AND e.scheduled_start < :cutoff
                   AND ms.captured_at >= :now - interval '5 hours'
                   AND ms.captured_at < :now - interval '25 minutes'
                 ORDER BY ms.market_id, time_bucket, ms.captured_at DESC
@@ -154,7 +154,7 @@ class MomentumAnalyzer:
                     cp.market_id,
                     m.market_type,
                     e.name as event_name,
-                    e.start_time as event_start,
+                    e.scheduled_start as event_start,
                     c.name as competition_name,
                     cp.captured_at as current_time,
                     cp.total_matched as current_matched,
