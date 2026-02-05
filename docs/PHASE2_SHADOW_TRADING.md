@@ -460,6 +460,82 @@ Before considering Phase 3, shadow trading should demonstrate:
 
 ---
 
+## Future Research: Price Momentum (Steamers/Drifters)
+
+### Overview
+
+The system tracks **price movements over time**:
+- **Steamers**: Prices shortening (getting lower odds) - money coming in
+- **Drifters**: Prices lengthening (getting higher odds) - money moving away
+
+This is tracked via the **Market Movers** page (`/movers`), comparing current prices to 30m, 1h, 2h, and 4h historical snapshots.
+
+### Why This Is NOT In The Scoring Engine (Yet)
+
+**Current scoring factors are structural/factual:**
+- Spread (market microstructure)
+- Volume (liquidity/efficiency)
+- Depth (order book thickness)
+- Volatility (price stability)
+- Update rate (market activity)
+
+**Momentum is different:**
+- It's an **observed behavior** without known cause
+- Could be smart money, public overreaction, or noise
+- We have **zero data** proving steamers win more often
+- Adding it now would pollute the scoring model with unvalidated assumptions
+
+### The Real Prize: Predicting Movements
+
+> **Key Insight**: If we can identify patterns that PREDICT which selections will steam or drift BEFORE they move, we absolutely have an edge.
+
+Currently we **observe** movements after they happen (reactive). The goal is to **predict** them in advance (proactive).
+
+### Research Questions to Answer
+
+1. **What preceded past steamers?**
+   - Early market formation patterns
+   - Initial price vs market average
+   - Spread/depth characteristics before the move
+   - Time patterns (how far from kickoff did moves start?)
+
+2. **Do steamers actually win?**
+   - Track outcomes of selections that steamed
+   - Compare win rates: steamers vs drifters vs stable prices
+   - Calculate: `P(Win | Steamer)` vs `P(Win | Drifter)` vs `P(Win | Stable)`
+
+3. **What triggers moves?**
+   - Team news correlation
+   - Social media sentiment (future data source)
+   - Weather changes
+   - Time of day patterns
+   - Competition-specific patterns
+
+4. **Can we predict before the move?**
+   - What do steamer characteristics look like 2 hours before they steam?
+   - Are there structural signals (spread widening, depth changes)?
+   - Does high score + specific pattern = imminent steam?
+
+### Data Collection (In Place)
+
+The infrastructure is ready:
+- Full price ladder captured every 60 seconds (`market_snapshots.ladder_data`)
+- Back and lay prices with sizes at all levels
+- Total matched volume over time
+- Historical snapshots for comparison
+
+### Integration Path (If Validated)
+
+Only after collecting sufficient data and proving predictive value:
+
+1. **Correlation analysis**: Do high-score + steamer outperform high-score alone?
+2. **If positive**: Add momentum as a scoring component or separate signal
+3. **If negative**: Keep as observational tool only, do not integrate
+
+**Principle**: Don't add assumptions to the scoring engine. Only add validated, data-backed signals.
+
+---
+
 ## Implementation Checklist
 
 - [ ] Create `app/tasks/shadow_trading.py` with decision logic
