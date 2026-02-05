@@ -1,0 +1,387 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+    .steamer-badge {
+        background: linear-gradient(135deg, #16a34a, #15803d);
+    }
+    .drifter-badge {
+        background: linear-gradient(135deg, #dc2626, #b91c1c);
+    }
+    .sharp-badge {
+        animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+    }
+    .change-positive { color: #22c55e; }
+    .change-negative { color: #ef4444; }
+    .mover-card {
+        transition: transform 0.2s;
+    }
+    .mover-card:hover {
+        transform: translateY(-2px);
+    }
+    .stat-box {
+        text-align: center;
+        padding: 1rem;
+        background: #1e293b;
+        border-radius: 8px;
+    }
+    .stat-number {
+        font-size: 1.75rem;
+        font-weight: bold;
+    }
+    .stat-label {
+        color: #94a3b8;
+        font-size: 0.85rem;
+    }
+    .filter-bar {
+        background: #1e293b;
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Page Header -->
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h4 class="mb-0">
+                    <i class="bi bi-arrow-left-right me-2"></i>Market Movers
+                </h4>
+                <p class="text-muted mb-0">Real-time steamers and drifters across active markets</p>
+            </div>
+            <button class="btn btn-outline-primary" onclick="loadAllData()">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Summary -->
+    <div class="col-12">
+        <div class="row g-3" id="stats-container">
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <div class="stat-number text-success" id="stat-steamers">-</div>
+                    <div class="stat-label">Steamers</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <div class="stat-number text-danger" id="stat-drifters">-</div>
+                    <div class="stat-label">Drifters</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <div class="stat-number text-warning" id="stat-sharp">-</div>
+                    <div class="stat-label">Sharp Moves</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <div class="stat-number text-info" id="stat-markets">-</div>
+                    <div class="stat-label">Markets Analyzed</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="col-12">
+        <div class="filter-bar d-flex flex-wrap gap-3 align-items-center">
+            <div>
+                <label class="form-label small text-muted mb-1">Min Change %</label>
+                <select class="form-select form-select-sm" id="min-change" style="width: 100px;">
+                    <option value="2">2%</option>
+                    <option value="3" selected>3%</option>
+                    <option value="5">5%</option>
+                    <option value="10">10%</option>
+                </select>
+            </div>
+            <div>
+                <label class="form-label small text-muted mb-1">Time Window</label>
+                <select class="form-select form-select-sm" id="hours-ahead" style="width: 120px;">
+                    <option value="6">Next 6 hours</option>
+                    <option value="12">Next 12 hours</option>
+                    <option value="24" selected>Next 24 hours</option>
+                    <option value="48">Next 48 hours</option>
+                </select>
+            </div>
+            <div class="ms-auto text-muted small" id="last-updated">
+                Last updated: -
+            </div>
+        </div>
+    </div>
+
+    <!-- Sharp Moves Alert -->
+    <div class="col-12" id="sharp-alert-container" style="display: none;">
+        <div class="alert alert-warning mb-0">
+            <i class="bi bi-lightning-charge me-2"></i>
+            <strong>Sharp Moves Detected!</strong>
+            <span id="sharp-alert-text"></span>
+        </div>
+    </div>
+
+    <!-- Steamers -->
+    <div class="col-lg-6">
+        <div class="card h-100 border-success">
+            <div class="card-header bg-success bg-opacity-10 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-arrow-up-circle me-2 text-success"></i>Steamers
+                    <small class="text-muted">(Prices Shortening)</small>
+                </h5>
+                <span class="badge bg-success" id="steamer-count">0</span>
+            </div>
+            <div class="card-body p-0" id="steamers-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-success" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Drifters -->
+    <div class="col-lg-6">
+        <div class="card h-100 border-danger">
+            <div class="card-header bg-danger bg-opacity-10 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-arrow-down-circle me-2 text-danger"></i>Drifters
+                    <small class="text-muted">(Prices Lengthening)</small>
+                </h5>
+                <span class="badge bg-danger" id="drifter-count">0</span>
+            </div>
+            <div class="card-body p-0" id="drifters-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-danger" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info Card -->
+    <div class="col-12">
+        <div class="card bg-dark border-secondary">
+            <div class="card-body">
+                <h6><i class="bi bi-info-circle me-2"></i>Understanding Market Movers</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <p class="mb-2"><strong class="text-success">Steamers</strong> = Prices getting shorter (lower odds)</p>
+                        <ul class="small text-muted mb-0">
+                            <li>Money coming in on this selection</li>
+                            <li>Could indicate "smart money" or insider knowledge</li>
+                            <li>Sharp steamers (>10%) are particularly notable</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="mb-2"><strong class="text-danger">Drifters</strong> = Prices getting longer (higher odds)</p>
+                        <ul class="small text-muted mb-0">
+                            <li>Money moving away from this selection</li>
+                            <li>Could indicate negative news or team changes</li>
+                            <li>Laying drifters can be profitable</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        loadAllData();
+
+        // Filter change handlers
+        document.getElementById('min-change').addEventListener('change', loadAllData);
+        document.getElementById('hours-ahead').addEventListener('change', loadAllData);
+
+        // Auto-refresh every 2 minutes
+        setInterval(loadAllData, 120000);
+    });
+
+    async function loadAllData() {
+        await Promise.all([
+            loadMovers(),
+            loadStats(),
+        ]);
+    }
+
+    async function loadStats() {
+        try {
+            const hoursAhead = document.getElementById('hours-ahead').value;
+            const response = await fetch(`/api/momentum/stats?hours_ahead=${hoursAhead}`);
+            const data = await response.json();
+
+            document.getElementById('stat-steamers').textContent = data.total_steamers;
+            document.getElementById('stat-drifters').textContent = data.total_drifters;
+            document.getElementById('stat-sharp').textContent = data.sharp_steamers + data.sharp_drifters;
+            document.getElementById('stat-markets').textContent = data.total_markets;
+
+            // Show sharp alert if any
+            const sharpTotal = data.sharp_steamers + data.sharp_drifters;
+            const alertContainer = document.getElementById('sharp-alert-container');
+            if (sharpTotal > 0) {
+                alertContainer.style.display = 'block';
+                document.getElementById('sharp-alert-text').textContent =
+                    `${data.sharp_steamers} sharp steamers, ${data.sharp_drifters} sharp drifters with >10% moves`;
+            } else {
+                alertContainer.style.display = 'none';
+            }
+
+        } catch (e) {
+            console.error('Failed to load stats:', e);
+        }
+    }
+
+    async function loadMovers() {
+        const minChange = document.getElementById('min-change').value;
+        const hoursAhead = document.getElementById('hours-ahead').value;
+
+        try {
+            const response = await fetch(
+                `/api/momentum/movers?min_change=${minChange}&hours_ahead=${hoursAhead}&limit=30`
+            );
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.detail || 'Failed to load movers');
+            }
+
+            renderSteamers(data.steamers);
+            renderDrifters(data.drifters);
+
+            document.getElementById('steamer-count').textContent = data.steamers.length;
+            document.getElementById('drifter-count').textContent = data.drifters.length;
+            document.getElementById('last-updated').textContent =
+                'Last updated: ' + new Date().toLocaleTimeString();
+
+        } catch (e) {
+            console.error('Failed to load movers:', e);
+            document.getElementById('steamers-container').innerHTML =
+                '<div class="alert alert-danger m-3">Failed to load steamers</div>';
+            document.getElementById('drifters-container').innerHTML =
+                '<div class="alert alert-danger m-3">Failed to load drifters</div>';
+        }
+    }
+
+    function renderSteamers(steamers) {
+        const container = document.getElementById('steamers-container');
+
+        if (steamers.length === 0) {
+            container.innerHTML = `
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-emoji-neutral fs-1"></i>
+                    <p class="mt-2">No significant steamers detected</p>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '<div class="list-group list-group-flush">';
+        for (const s of steamers) {
+            const change = s.change_2h || s.change_1h || s.change_30m || 0;
+            const sharpClass = s.movement_strength === 'SHARP' ? 'sharp-badge' : '';
+            const strengthBadge = s.movement_strength === 'SHARP'
+                ? '<span class="badge bg-warning text-dark ms-1">SHARP</span>'
+                : '';
+
+            html += `
+                <div class="list-group-item bg-transparent border-secondary mover-card">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="mb-1">
+                                ${s.runner_name} ${strengthBadge}
+                            </h6>
+                            <small class="text-muted">
+                                ${s.competition_name} - ${s.event_name}
+                            </small>
+                            <br>
+                            <small class="text-muted">${s.market_type} | ${s.minutes_to_start} mins to start</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="fs-5 text-success">${change.toFixed(1)}%</div>
+                            <small class="text-muted">
+                                ${s.current_back.toFixed(2)}
+                                <i class="bi bi-arrow-down text-success"></i>
+                            </small>
+                        </div>
+                    </div>
+                    ${s.change_30m !== null || s.change_1h !== null || s.change_4h !== null ? `
+                    <div class="mt-2 small">
+                        ${s.change_30m !== null ? `<span class="me-2">30m: <span class="change-negative">${s.change_30m.toFixed(1)}%</span></span>` : ''}
+                        ${s.change_1h !== null ? `<span class="me-2">1h: <span class="change-negative">${s.change_1h.toFixed(1)}%</span></span>` : ''}
+                        ${s.change_2h !== null ? `<span class="me-2">2h: <span class="change-negative">${s.change_2h.toFixed(1)}%</span></span>` : ''}
+                        ${s.change_4h !== null ? `<span class="me-2">4h: <span class="change-negative">${s.change_4h.toFixed(1)}%</span></span>` : ''}
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    function renderDrifters(drifters) {
+        const container = document.getElementById('drifters-container');
+
+        if (drifters.length === 0) {
+            container.innerHTML = `
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-emoji-neutral fs-1"></i>
+                    <p class="mt-2">No significant drifters detected</p>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '<div class="list-group list-group-flush">';
+        for (const d of drifters) {
+            const change = d.change_2h || d.change_1h || d.change_30m || 0;
+            const strengthBadge = d.movement_strength === 'SHARP'
+                ? '<span class="badge bg-warning text-dark ms-1">SHARP</span>'
+                : '';
+
+            html += `
+                <div class="list-group-item bg-transparent border-secondary mover-card">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="mb-1">
+                                ${d.runner_name} ${strengthBadge}
+                            </h6>
+                            <small class="text-muted">
+                                ${d.competition_name} - ${d.event_name}
+                            </small>
+                            <br>
+                            <small class="text-muted">${d.market_type} | ${d.minutes_to_start} mins to start</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="fs-5 text-danger">+${change.toFixed(1)}%</div>
+                            <small class="text-muted">
+                                ${d.current_back.toFixed(2)}
+                                <i class="bi bi-arrow-up text-danger"></i>
+                            </small>
+                        </div>
+                    </div>
+                    ${d.change_30m !== null || d.change_1h !== null || d.change_4h !== null ? `
+                    <div class="mt-2 small">
+                        ${d.change_30m !== null ? `<span class="me-2">30m: <span class="change-positive">+${d.change_30m.toFixed(1)}%</span></span>` : ''}
+                        ${d.change_1h !== null ? `<span class="me-2">1h: <span class="change-positive">+${d.change_1h.toFixed(1)}%</span></span>` : ''}
+                        ${d.change_2h !== null ? `<span class="me-2">2h: <span class="change-positive">+${d.change_2h.toFixed(1)}%</span></span>` : ''}
+                        ${d.change_4h !== null ? `<span class="me-2">4h: <span class="change-positive">+${d.change_4h.toFixed(1)}%</span></span>` : ''}
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+        html += '</div>';
+        container.innerHTML = html;
+    }
+</script>
+{% endblock %}

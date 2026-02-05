@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.api.routes import admin, analytics, competitions, config, health, markets, scores, shadow
+from app.api.routes import admin, analytics, competitions, config, health, markets, momentum, scores, shadow
 from app.config import get_settings
 
 # Configure structured logging
@@ -71,6 +71,7 @@ app.include_router(competitions.router)
 app.include_router(config.router)
 app.include_router(analytics.router)
 app.include_router(shadow.router)
+app.include_router(momentum.router)
 app.include_router(admin.router)
 
 
@@ -126,6 +127,15 @@ async def shadow_page(request: Request):
     return templates.TemplateResponse(
         "shadow.html",
         {"request": request, "title": "Shadow Trading"},
+    )
+
+
+@app.get("/movers", response_class=HTMLResponse)
+async def movers_page(request: Request):
+    """Market movers page - steamers and drifters."""
+    return templates.TemplateResponse(
+        "movers.html",
+        {"request": request, "title": "Market Movers"},
     )
 
 
