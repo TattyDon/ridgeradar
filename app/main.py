@@ -119,6 +119,15 @@ async def analytics_page(request: Request):
     )
 
 
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    """Admin panel page."""
+    return templates.TemplateResponse(
+        "admin.html",
+        {"request": request, "title": "Admin"},
+    )
+
+
 # Error handlers
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):

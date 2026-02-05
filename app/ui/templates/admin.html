@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Page Header -->
+    <div class="col-12">
+        <h4 class="mb-0"><i class="bi bi-gear me-2"></i>Admin Panel</h4>
+        <p class="text-muted mb-0">Manual task triggers and system administration</p>
+    </div>
+
+    <!-- Task Triggers -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-play-circle me-2"></i>Data Capture Tasks</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary text-start" onclick="triggerTask('capture-closing-data')">
+                        <i class="bi bi-clock-history me-2"></i>
+                        <strong>Capture Closing Data</strong>
+                        <br><small class="text-muted">Closing odds for markets starting in 15 mins</small>
+                    </button>
+                    <button class="btn btn-outline-primary text-start" onclick="triggerTask('capture-results')">
+                        <i class="bi bi-trophy me-2"></i>
+                        <strong>Capture Results</strong>
+                        <br><small class="text-muted">Settlement results for closed markets</small>
+                    </button>
+                    <button class="btn btn-outline-primary text-start" onclick="triggerTask('capture-event-results')">
+                        <i class="bi bi-clipboard-check me-2"></i>
+                        <strong>Capture Event Results</strong>
+                        <br><small class="text-muted">Actual match scores (goals, etc.)</small>
+                    </button>
+                    <button class="btn btn-outline-secondary text-start" onclick="triggerTask('update-results-from-scores')">
+                        <i class="bi bi-arrow-repeat me-2"></i>
+                        <strong>Update Results from Correct Score</strong>
+                        <br><small class="text-muted">Enhance results with exact scorelines</small>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Core Tasks -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-arrow-clockwise me-2"></i>Core Pipeline Tasks</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-info text-start" onclick="triggerTask('discover-markets')">
+                        <i class="bi bi-search me-2"></i>
+                        <strong>Discover Markets</strong>
+                        <br><small class="text-muted">Find new markets from Betfair API</small>
+                    </button>
+                    <button class="btn btn-outline-info text-start" onclick="triggerTask('capture-snapshots')">
+                        <i class="bi bi-camera me-2"></i>
+                        <strong>Capture Snapshots</strong>
+                        <br><small class="text-muted">Market ladder snapshots</small>
+                    </button>
+                    <button class="btn btn-outline-info text-start" onclick="triggerTask('compute-profiles')">
+                        <i class="bi bi-graph-up me-2"></i>
+                        <strong>Compute Profiles</strong>
+                        <br><small class="text-muted">Daily market profile aggregation</small>
+                    </button>
+                    <button class="btn btn-outline-warning text-start" onclick="triggerTask('score-markets')">
+                        <i class="bi bi-star me-2"></i>
+                        <strong>Score Markets</strong>
+                        <br><small class="text-muted">Calculate exploitability scores</small>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Log -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-terminal me-2"></i>Task Log</h5>
+                <button class="btn btn-sm btn-outline-secondary" onclick="clearLog()">Clear</button>
+            </div>
+            <div class="card-body p-0">
+                <div id="task-log" style="max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.85rem;">
+                    <div class="p-3 text-muted">No tasks triggered yet. Click a button above to run a task.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Schedule Info -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-calendar-event me-2"></i>Automatic Schedule</h5>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>Task</th>
+                            <th>Schedule</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>capture-snapshots</code></td>
+                            <td>Every 60 seconds</td>
+                            <td>Market ladder data</td>
+                        </tr>
+                        <tr>
+                            <td><code>capture-closing-data</code></td>
+                            <td>Every 2 minutes</td>
+                            <td>Closing odds before kickoff</td>
+                        </tr>
+                        <tr>
+                            <td><code>score-markets</code></td>
+                            <td>Every 5 minutes</td>
+                            <td>Exploitability scores</td>
+                        </tr>
+                        <tr>
+                            <td><code>discover-markets</code></td>
+                            <td>Every 15 minutes</td>
+                            <td>New market discovery</td>
+                        </tr>
+                        <tr>
+                            <td><code>capture-results</code></td>
+                            <td>Every 15 minutes</td>
+                            <td>Market settlement results</td>
+                        </tr>
+                        <tr>
+                            <td><code>capture-event-results</code></td>
+                            <td>Every 30 minutes</td>
+                            <td>Match scores</td>
+                        </tr>
+                        <tr>
+                            <td><code>compute-profiles</code></td>
+                            <td>Hourly at :05</td>
+                            <td>Daily profile aggregation</td>
+                        </tr>
+                        <tr>
+                            <td><code>update-results-from-scores</code></td>
+                            <td>Hourly at :45</td>
+                            <td>Correct Score enhancement</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let logEntries = [];
+
+    async function triggerTask(taskName) {
+        const timestamp = new Date().toLocaleTimeString();
+        addLogEntry(`[${timestamp}] Triggering ${taskName}...`, 'text-info');
+
+        try {
+            const response = await fetch(`/api/admin/trigger-task/${taskName}`, {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                addLogEntry(`[${timestamp}] ✓ ${taskName} submitted (ID: ${data.task_id})`, 'text-success');
+            } else {
+                addLogEntry(`[${timestamp}] ✗ ${taskName} failed: ${data.detail}`, 'text-danger');
+            }
+        } catch (e) {
+            addLogEntry(`[${timestamp}] ✗ ${taskName} error: ${e.message}`, 'text-danger');
+        }
+    }
+
+    function addLogEntry(message, className) {
+        logEntries.push({ message, className });
+        renderLog();
+    }
+
+    function renderLog() {
+        const container = document.getElementById('task-log');
+        if (logEntries.length === 0) {
+            container.innerHTML = '<div class="p-3 text-muted">No tasks triggered yet. Click a button above to run a task.</div>';
+            return;
+        }
+
+        let html = '<div class="p-3">';
+        for (const entry of logEntries) {
+            html += `<div class="${entry.className}">${entry.message}</div>`;
+        }
+        html += '</div>';
+        container.innerHTML = html;
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function clearLog() {
+        logEntries = [];
+        renderLog();
+    }
+</script>
+{% endblock %}
