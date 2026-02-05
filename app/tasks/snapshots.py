@@ -19,7 +19,7 @@ from app.tasks import celery_app
 logger = structlog.get_logger(__name__)
 
 
-@celery_app.task(bind=True, soft_time_limit=55, time_limit=60)
+@celery_app.task(bind=True, soft_time_limit=55, time_limit=60, queue="odds")
 def capture_snapshots(self, market_ids: list[int] | None = None):
     """
     Scheduled: Every 60 seconds

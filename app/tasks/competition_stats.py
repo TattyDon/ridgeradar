@@ -45,7 +45,7 @@ def _load_config() -> dict[str, Any]:
     return {}
 
 
-@celery_app.task(bind=True, name="aggregate_competition_stats")
+@celery_app.task(bind=True, name="aggregate_competition_stats", queue="fixtures")
 def aggregate_competition_stats_task(self, target_date: str | None = None):
     """
     Celery task wrapper for competition stats aggregation.

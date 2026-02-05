@@ -720,7 +720,7 @@ async def settle_shadow_decisions(db: AsyncSession) -> dict[str, Any]:
 # Celery Task Wrappers
 # =============================================================================
 
-@shared_task(name="app.tasks.shadow_trading.make_shadow_decisions_task")
+@shared_task(name="app.tasks.shadow_trading.make_shadow_decisions_task", queue="odds")
 def make_shadow_decisions_task() -> dict[str, Any]:
     """
     Celery task to make shadow trading decisions.
@@ -745,7 +745,7 @@ def make_shadow_decisions_task() -> dict[str, Any]:
     return asyncio.run(_run())
 
 
-@shared_task(name="app.tasks.shadow_trading.capture_closing_prices_task")
+@shared_task(name="app.tasks.shadow_trading.capture_closing_prices_task", queue="odds")
 def capture_closing_prices_task() -> dict[str, Any]:
     """
     Celery task to capture closing prices for CLV.
@@ -764,7 +764,7 @@ def capture_closing_prices_task() -> dict[str, Any]:
     return asyncio.run(_run())
 
 
-@shared_task(name="app.tasks.shadow_trading.settle_shadow_decisions_task")
+@shared_task(name="app.tasks.shadow_trading.settle_shadow_decisions_task", queue="fixtures")
 def settle_shadow_decisions_task() -> dict[str, Any]:
     """
     Celery task to settle shadow decisions.
@@ -783,7 +783,7 @@ def settle_shadow_decisions_task() -> dict[str, Any]:
     return asyncio.run(_run())
 
 
-@shared_task(name="app.tasks.shadow_trading.check_phase_status_task")
+@shared_task(name="app.tasks.shadow_trading.check_phase_status_task", queue="fixtures")
 def check_phase_status_task() -> dict[str, Any]:
     """
     Celery task to check and log current phase status.

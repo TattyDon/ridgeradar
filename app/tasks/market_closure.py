@@ -309,7 +309,7 @@ async def capture_results(db: AsyncSession) -> dict[str, Any]:
 # Celery Task Wrappers
 # =============================================================================
 
-@shared_task(name="app.tasks.market_closure.capture_closing_data_task")
+@shared_task(name="app.tasks.market_closure.capture_closing_data_task", queue="odds")
 def capture_closing_data_task() -> dict[str, Any]:
     """
     Celery task to capture closing odds and final scores.
@@ -323,7 +323,7 @@ def capture_closing_data_task() -> dict[str, Any]:
     return asyncio.run(_run())
 
 
-@shared_task(name="app.tasks.market_closure.capture_results_task")
+@shared_task(name="app.tasks.market_closure.capture_results_task", queue="fixtures")
 def capture_results_task() -> dict[str, Any]:
     """
     Celery task to capture settlement results.

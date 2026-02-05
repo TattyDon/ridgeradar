@@ -23,7 +23,7 @@ from app.tasks import celery_app
 logger = structlog.get_logger(__name__)
 
 
-@celery_app.task(bind=True, max_retries=3, soft_time_limit=300, time_limit=360)
+@celery_app.task(bind=True, max_retries=3, soft_time_limit=300, time_limit=360, queue="fixtures")
 def discover_markets(self):
     """
     Scheduled: Every 15 minutes

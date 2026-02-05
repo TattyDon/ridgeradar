@@ -330,7 +330,7 @@ async def update_results_from_scores(db: AsyncSession) -> dict[str, Any]:
 # Celery Task Wrappers
 # =============================================================================
 
-@shared_task(name="app.tasks.results.capture_event_results_task")
+@shared_task(name="app.tasks.results.capture_event_results_task", queue="fixtures")
 def capture_event_results_task() -> dict[str, Any]:
     """
     Celery task to capture event results.
@@ -344,7 +344,7 @@ def capture_event_results_task() -> dict[str, Any]:
     return asyncio.run(_run())
 
 
-@shared_task(name="app.tasks.results.update_results_from_scores_task")
+@shared_task(name="app.tasks.results.update_results_from_scores_task", queue="fixtures")
 def update_results_from_scores_task() -> dict[str, Any]:
     """
     Celery task to enhance results with Correct Score data.

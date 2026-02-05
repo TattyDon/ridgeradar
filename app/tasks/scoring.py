@@ -31,7 +31,7 @@ from app.tasks import celery_app
 logger = structlog.get_logger(__name__)
 
 
-@celery_app.task(bind=True, soft_time_limit=150, time_limit=180)
+@celery_app.task(bind=True, soft_time_limit=150, time_limit=180, queue="odds")
 def score_markets(self):
     """
     Scheduled: Every 5 minutes

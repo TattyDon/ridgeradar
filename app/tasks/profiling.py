@@ -15,7 +15,7 @@ from app.tasks import celery_app
 logger = structlog.get_logger(__name__)
 
 
-@celery_app.task(bind=True, soft_time_limit=540, time_limit=600)
+@celery_app.task(bind=True, soft_time_limit=540, time_limit=600, queue="fixtures")
 def compute_daily_profiles(self, profile_date: str | None = None):
     """
     Scheduled: Hourly at :05
