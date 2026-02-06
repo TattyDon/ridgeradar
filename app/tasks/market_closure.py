@@ -19,12 +19,14 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
+import redis.asyncio as redis
 import structlog
 from celery import shared_task
 from sqlalchemy import and_, select, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models.base import get_task_session
 from app.models.domain import (
     Event,
@@ -34,6 +36,7 @@ from app.models.domain import (
     MarketSnapshot,
     Runner,
 )
+from app.services.betfair_client import BetfairClient
 
 logger = structlog.get_logger(__name__)
 
@@ -211,12 +214,13 @@ async def _capture_market_closing(
         )
 
 
-async def capture_results(db: AsyncSession) -> dict[str, Any]:
+async def capture_results(db: AsyncSession, betfair: BetfairClient) -> dict[str, Any]:
     """
     Capture settlement results for markets that have closed.
 
-    This runs separately (less frequently) to fetch final results
-    after events have finished.
+    This queries Betfair directly to get WINNER/LOSER runner statuses
+    for settled markets, since local runner data is not updated after
+    markets go in-play.
 
     Returns statistics about what was captured.
     """
@@ -224,18 +228,24 @@ async def capture_results(db: AsyncSession) -> dict[str, Any]:
         "markets_checked": 0,
         "results_captured": 0,
         "not_settled": 0,
+        "api_errors": 0,
         "errors": 0,
     }
 
     try:
         # Find markets with closing data but no settlement
+        # Only check markets where event started at least 2 hours ago (likely settled)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=2)
+
         unsettled_query = (
-            select(MarketClosingData, Market)
+            select(MarketClosingData, Market, Event)
             .join(Market, MarketClosingData.market_id == Market.id)
+            .join(Event, Market.event_id == Event.id)
             .where(
                 and_(
                     MarketClosingData.settled_at.is_(None),
                     MarketClosingData.closing_odds.isnot(None),
+                    Event.scheduled_start < cutoff_time,  # Event started 2+ hours ago
                 )
             )
             .limit(100)  # Process in batches
@@ -245,39 +255,95 @@ async def capture_results(db: AsyncSession) -> dict[str, Any]:
         records = result.all()
         stats["markets_checked"] = len(records)
 
-        for closing_data, market in records:
+        if not records:
+            logger.info("results_capture_complete", **stats)
+            return stats
+
+        # Get runner names from local DB for all markets
+        market_ids = [market.id for _, market, _ in records]
+        runners_query = select(Runner).where(Runner.market_id.in_(market_ids))
+        runners_result = await db.execute(runners_query)
+        all_runners = runners_result.scalars().all()
+
+        # Build lookup: betfair_market_id -> {betfair_runner_id -> runner_name}
+        runner_names: dict[str, dict[int, str]] = {}
+        market_id_to_betfair: dict[int, str] = {}
+
+        for closing_data, market, event in records:
+            market_id_to_betfair[market.id] = market.betfair_id
+            runner_names[market.betfair_id] = {}
+
+        for runner in all_runners:
+            betfair_market_id = market_id_to_betfair.get(runner.market_id)
+            if betfair_market_id:
+                runner_names[betfair_market_id][runner.betfair_id] = runner.name
+
+        # Query Betfair for settlement status in batches
+        betfair_market_ids = list(runner_names.keys())
+        batch_size = 20
+
+        market_results: dict[str, dict] = {}  # betfair_market_id -> result data
+
+        for i in range(0, len(betfair_market_ids), batch_size):
+            batch_ids = betfair_market_ids[i:i + batch_size]
+
             try:
-                # Check if market is now settled by looking at runner status
-                runners_query = select(Runner).where(Runner.market_id == market.id)
-                runners_result = await db.execute(runners_query)
-                runners = runners_result.scalars().all()
+                books = await betfair.list_market_book(batch_ids, price_depth=1)
 
-                # Check if any runner has WINNER/LOSER status
-                winner = None
-                runner_results = []
+                for book in books:
+                    # Check if market is CLOSED (settled)
+                    if book.status != "CLOSED":
+                        continue
 
-                for runner in runners:
-                    if runner.status == "WINNER":
-                        winner = runner
-                    runner_results.append({
-                        "runner_id": runner.betfair_id,
-                        "name": runner.name,
-                        "status": runner.status,
-                    })
+                    winner_id = None
+                    winner_name = None
+                    runner_statuses = []
 
-                if winner:
-                    closing_data.result = {
-                        "winner_runner_id": winner.betfair_id,
-                        "winner_name": winner.name,
-                        "runners": runner_results,
-                    }
+                    for runner in book.runners:
+                        runner_name = runner_names.get(book.market_id, {}).get(
+                            runner.selection_id, f"Runner {runner.selection_id}"
+                        )
+
+                        runner_statuses.append({
+                            "runner_id": runner.selection_id,
+                            "name": runner_name,
+                            "status": runner.status,
+                        })
+
+                        if runner.status == "WINNER":
+                            winner_id = runner.selection_id
+                            winner_name = runner_name
+
+                    if winner_id:
+                        market_results[book.market_id] = {
+                            "winner_runner_id": winner_id,
+                            "winner_name": winner_name,
+                            "runners": runner_statuses,
+                        }
+
+            except Exception as e:
+                logger.warning(
+                    "betfair_results_batch_error",
+                    batch_start=i,
+                    batch_size=len(batch_ids),
+                    error=str(e),
+                )
+                stats["api_errors"] += 1
+
+        # Update closing data records with results
+        for closing_data, market, event in records:
+            try:
+                result_data = market_results.get(market.betfair_id)
+
+                if result_data:
+                    closing_data.result = result_data
                     closing_data.settled_at = datetime.now(timezone.utc)
                     stats["results_captured"] += 1
 
                     logger.debug(
                         "result_captured",
                         market_id=market.id,
-                        winner=winner.name,
+                        winner=result_data["winner_name"],
                     )
                 else:
                     stats["not_settled"] += 1
@@ -329,9 +395,14 @@ def capture_results_task() -> dict[str, Any]:
     Celery task to capture settlement results.
 
     Runs every 15 minutes to check for settled markets.
+    Queries Betfair API directly to get WINNER/LOSER statuses.
     """
     async def _run():
+        settings = get_settings()
+        redis_client = redis.from_url(settings.redis_url)
+
         async with get_task_session() as db:
-            return await capture_results(db)
+            async with BetfairClient(redis_client=redis_client) as betfair:
+                return await capture_results(db, betfair)
 
     return asyncio.run(_run())
