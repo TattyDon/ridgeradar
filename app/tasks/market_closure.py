@@ -279,8 +279,9 @@ async def capture_results(db: AsyncSession, betfair: BetfairClient) -> dict[str,
                 runner_names[betfair_market_id][runner.betfair_id] = runner.name
 
         # Query Betfair for settlement status in batches
+        # Use small batch size to avoid TOO_MUCH_DATA errors (same as snapshots)
         betfair_market_ids = list(runner_names.keys())
-        batch_size = 20
+        batch_size = 5
 
         market_results: dict[str, dict] = {}  # betfair_market_id -> result data
 
