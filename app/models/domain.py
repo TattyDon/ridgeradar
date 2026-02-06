@@ -794,6 +794,27 @@ class ShadowDecision(Base):
         Integer, ForeignKey("competitions.id"), nullable=True
     )
 
+    # Hypothesis tracking (which strategy triggered this decision)
+    hypothesis_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("trading_hypotheses.id"), nullable=True,
+        doc="Which trading hypothesis triggered this decision"
+    )
+    hypothesis_name: Mapped[str | None] = mapped_column(
+        String(50), nullable=True,
+        doc="Denormalized for quick filtering: steam_follower, score_based, etc."
+    )
+
+    # Momentum data (for steam/drift tracking)
+    price_change_30m: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 4), nullable=True, doc="Price change % over last 30 mins"
+    )
+    price_change_1h: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 4), nullable=True, doc="Price change % over last 1 hour"
+    )
+    price_change_2h: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 4), nullable=True, doc="Price change % over last 2 hours"
+    )
+
     # Metadata
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -807,11 +828,15 @@ class ShadowDecision(Base):
     runner: Mapped["Runner"] = relationship("Runner")
     score: Mapped["ExploitabilityScore"] = relationship("ExploitabilityScore")
     competition: Mapped["Competition | None"] = relationship("Competition")
+    hypothesis: Mapped["TradingHypothesis | None"] = relationship(
+        "TradingHypothesis", back_populates="decisions"
+    )
 
     __table_args__ = (
         Index("idx_shadow_decisions_niche", "niche", "outcome"),
         Index("idx_shadow_decisions_pending", "market_id", postgresql_where=(outcome == "PENDING")),
         Index("idx_shadow_decisions_date", "decision_at"),
+        Index("idx_shadow_decisions_hypothesis", "hypothesis_name", "outcome"),
     )
 
     def __repr__(self) -> str:
@@ -849,3 +874,113 @@ class JobRun(Base):
 
     def __repr__(self) -> str:
         return f"<JobRun {self.job_name} status={self.status}>"
+
+
+class TradingHypothesis(Base):
+    """
+    Defines a trading hypothesis to be tested in Phase 2.
+
+    Each hypothesis represents a specific trading strategy with clear
+    entry criteria. Multiple hypotheses can run simultaneously to compare
+    different approaches.
+
+    Examples:
+    - "steam_follower": Back selections steaming >5% in thin markets
+    - "drift_fader": Lay selections drifting >10% (market overreaction)
+    - "score_based": Back based on exploitability score alone
+
+    Strategy Document Reference:
+    - Phase 2 requires 500+ decisions per candidate niche
+    - Need 2+ stable niches with >3% ROI after costs
+    - Must track to settlement and validate edge persistence
+    """
+
+    __tablename__ = "trading_hypotheses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(
+        String(50), unique=True, nullable=False,
+        doc="Unique identifier: steam_follower, drift_fader, score_based"
+    )
+    display_name: Mapped[str] = mapped_column(
+        String(100), nullable=False,
+        doc="Human-readable name for display"
+    )
+    description: Mapped[str] = mapped_column(
+        Text, nullable=False,
+        doc="Full description of the hypothesis and rationale"
+    )
+
+    # Status
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    # Entry criteria (JSONB for flexibility)
+    entry_criteria: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False,
+        doc="""
+        Entry criteria for this hypothesis. Example:
+        {
+            "min_score": 30,
+            "min_price_change_pct": 5.0,
+            "price_change_direction": "steaming",  # or "drifting"
+            "price_change_window_minutes": 60,
+            "min_minutes_to_start": 60,
+            "max_minutes_to_start": 1440,
+            "min_total_matched": 5000,
+            "max_spread_pct": 5.0,
+            "competition_filter": null,  # or list of competition IDs
+            "market_type_filter": ["MATCH_ODDS", "OVER_UNDER_25"]
+        }
+        """
+    )
+
+    # Selection logic
+    selection_logic: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="momentum",
+        doc="Logic type: 'momentum', 'score_based', 'value_hunter', 'contrarian'"
+    )
+    decision_type: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="BACK",
+        doc="BACK or LAY"
+    )
+
+    # Performance tracking (denormalized for quick access)
+    total_decisions: Mapped[int] = mapped_column(Integer, default=0)
+    total_wins: Mapped[int] = mapped_column(Integer, default=0)
+    total_losses: Mapped[int] = mapped_column(Integer, default=0)
+    total_pnl: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    avg_clv: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    last_decision_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Relationships
+    decisions: Mapped[list["ShadowDecision"]] = relationship(
+        "ShadowDecision", back_populates="hypothesis"
+    )
+
+    __table_args__ = (
+        Index("idx_hypotheses_enabled", "enabled", postgresql_where=(enabled == True)),
+    )
+
+    def __repr__(self) -> str:
+        return f"<TradingHypothesis {self.name} enabled={self.enabled}>"
+
+    @property
+    def win_rate(self) -> float:
+        """Calculate current win rate."""
+        settled = self.total_wins + self.total_losses
+        if settled == 0:
+            return 0.0
+        return self.total_wins / settled * 100
+
+    @property
+    def roi(self) -> float:
+        """Calculate ROI based on assumed £10 stakes."""
+        if self.total_decisions == 0:
+            return 0.0
+        total_staked = self.total_decisions * 10  # Assumed base stake
+        return float(self.total_pnl) / total_staked * 100

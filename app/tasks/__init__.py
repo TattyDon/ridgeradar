@@ -24,6 +24,7 @@ celery_app = Celery(
         "app.tasks.market_closure",
         "app.tasks.results",
         "app.tasks.shadow_trading",
+        "app.tasks.hypothesis",
     ],
 )
 
@@ -132,5 +133,22 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.shadow_trading.settle_shadow_decisions_task",
         "schedule": 900.0,  # 15 minutes
         "options": {"expires": 840},
+    },
+
+    # ==========================================================================
+    # Hypothesis Evaluation Tasks (Phase 2 - Momentum-based)
+    # ==========================================================================
+
+    # Evaluate trading hypotheses - every 2 minutes
+    "evaluate-hypotheses": {
+        "task": "app.tasks.hypothesis.evaluate_hypotheses_task",
+        "schedule": 120.0,  # 2 minutes
+        "options": {"expires": 110},
+    },
+    # Update hypothesis performance stats - hourly at :15
+    "update-hypothesis-stats": {
+        "task": "app.tasks.hypothesis.update_hypothesis_stats_task",
+        "schedule": crontab(minute=15),  # Every hour at :15
+        "options": {"expires": 3540},
     },
 }

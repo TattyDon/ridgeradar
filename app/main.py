@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.api.routes import admin, analytics, competitions, config, health, markets, momentum, scores, shadow
+from app.api.routes import admin, analytics, competitions, config, health, hypotheses, markets, momentum, scores, shadow
 from app.config import get_settings
 
 # Configure structured logging
@@ -72,6 +72,7 @@ app.include_router(config.router)
 app.include_router(analytics.router)
 app.include_router(shadow.router)
 app.include_router(momentum.router)
+app.include_router(hypotheses.router)
 app.include_router(admin.router)
 
 
