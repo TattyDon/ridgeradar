@@ -132,12 +132,30 @@
         </div>
     </div>
 
+    <!-- Strategy Performance Comparison -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Strategy Comparison</h5>
+                <small class="text-muted">Compare performance across different trading strategies</small>
+            </div>
+            <div class="card-body p-0" id="strategy-performance-container">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Recent Decisions -->
     <div class="col-12">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-list-check me-2"></i>Recent Decisions</h5>
-                <div>
+                <div class="d-flex gap-2">
+                    <select class="form-select form-select-sm d-inline-block w-auto" id="strategy-filter">
+                        <option value="">All Strategies</option>
+                    </select>
                     <select class="form-select form-select-sm d-inline-block w-auto" id="outcome-filter">
                         <option value="">All Outcomes</option>
                         <option value="PENDING">Pending</option>
@@ -180,18 +198,101 @@
         loadPerformance();
         loadCLVCorrelation();
         loadNichePerformance();
+        loadStrategies();
+        loadStrategyPerformance();
         loadDecisions();
 
-        // Filter change handler
+        // Filter change handlers
         document.getElementById('outcome-filter').addEventListener('change', loadDecisions);
+        document.getElementById('strategy-filter').addEventListener('change', loadDecisions);
 
         // Auto-refresh every 60 seconds
         setInterval(() => {
             loadPhaseStatus();
             loadPerformance();
+            loadStrategyPerformance();
             loadDecisions();
         }, 60000);
     });
+
+    async function loadStrategies() {
+        try {
+            const response = await fetch('/api/shadow/strategies');
+            const data = await response.json();
+
+            const select = document.getElementById('strategy-filter');
+            select.innerHTML = '<option value="">All Strategies</option>';
+
+            for (const strategy of data) {
+                const option = document.createElement('option');
+                option.value = strategy.name;
+                option.textContent = `${formatStrategyName(strategy.name)} (${strategy.count})`;
+                select.appendChild(option);
+            }
+        } catch (e) {
+            console.error('Failed to load strategies:', e);
+        }
+    }
+
+    function formatStrategyName(name) {
+        // Convert snake_case to Title Case
+        return name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    }
+
+    function getStrategyBadgeClass(name) {
+        const classes = {
+            'score_based': 'bg-primary',
+            'steam_follower': 'bg-success',
+            'strong_steam_follower': 'bg-success',
+            'drift_fader': 'bg-danger',
+            'under_specialist': 'bg-info',
+        };
+        return classes[name] || 'bg-secondary';
+    }
+
+    async function loadStrategyPerformance() {
+        try {
+            const response = await fetch('/api/shadow/strategy-performance');
+            const data = await response.json();
+
+            if (data.length === 0) {
+                document.getElementById('strategy-performance-container').innerHTML = `
+                    <div class="text-center text-muted py-4">
+                        <p>No decisions yet. Strategies will be compared as decisions accumulate.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '<table class="table table-sm mb-0"><thead><tr>' +
+                '<th>Strategy</th><th>Decisions</th><th>Win Rate</th><th>Avg CLV</th><th>ROI</th><th>Net P&L</th></tr></thead><tbody>';
+
+            for (const row of data) {
+                const winRateClass = row.win_rate >= 55 ? 'text-success' : row.win_rate >= 50 ? 'text-warning' : 'text-danger';
+                const roiClass = row.roi_percent >= 0 ? 'text-success' : 'text-danger';
+                const pnlClass = row.net_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+                const clvClass = row.avg_clv >= 0 ? 'clv-positive' : 'clv-negative';
+
+                html += `
+                    <tr>
+                        <td>
+                            <span class="badge ${getStrategyBadgeClass(row.strategy)}">${formatStrategyName(row.strategy)}</span>
+                        </td>
+                        <td>${row.total_decisions} <small class="text-muted">(${row.pending} pending, ${row.wins}W/${row.losses}L)</small></td>
+                        <td class="${winRateClass} fw-bold">${row.win_rate.toFixed(1)}%</td>
+                        <td class="${clvClass}">${row.avg_clv >= 0 ? '+' : ''}${row.avg_clv.toFixed(2)}%</td>
+                        <td class="${roiClass}">${row.roi_percent >= 0 ? '+' : ''}${row.roi_percent.toFixed(1)}%</td>
+                        <td class="${pnlClass}">£${row.net_pnl.toFixed(2)}</td>
+                    </tr>
+                `;
+            }
+
+            html += '</tbody></table>';
+            document.getElementById('strategy-performance-container').innerHTML = html;
+        } catch (e) {
+            document.getElementById('strategy-performance-container').innerHTML = '<div class="alert alert-danger m-3">Failed to load strategy data</div>';
+        }
+    }
 
     async function loadPhaseStatus() {
         try {
@@ -413,9 +514,11 @@
     async function loadDecisions() {
         try {
             const outcome = document.getElementById('outcome-filter').value;
-            const url = outcome
-                ? `/api/shadow/decisions?outcome=${outcome}&limit=30`
-                : '/api/shadow/decisions?limit=30';
+            const strategy = document.getElementById('strategy-filter').value;
+
+            let url = '/api/shadow/decisions?limit=30';
+            if (outcome) url += `&outcome=${outcome}`;
+            if (strategy) url += `&strategy=${strategy}`;
 
             const response = await fetch(url);
             const data = await response.json();
@@ -437,7 +540,7 @@
             }
 
             let html = '<table class="table table-sm table-hover mb-0"><thead><tr>' +
-                '<th>Time</th><th>Competition</th><th>Market</th><th>Selection</th><th>Score</th>' +
+                '<th>Time</th><th>Strategy</th><th>Competition</th><th>Market</th><th>Selection</th><th>Score</th>' +
                 '<th>Entry</th><th>CLV</th><th>Outcome</th><th>P&L</th></tr></thead><tbody>';
 
             for (const row of data) {
@@ -456,9 +559,18 @@
                     ? `<span class="${row.net_pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">${row.net_pnl >= 0 ? '+' : ''}£${row.net_pnl.toFixed(2)}</span>`
                     : '<span class="text-muted">-</span>';
 
+                // Build strategy display with momentum info
+                let strategyHtml = `<span class="badge ${getStrategyBadgeClass(row.hypothesis_name)}">${formatStrategyName(row.hypothesis_name)}</span>`;
+                if (row.price_change_30m !== null) {
+                    const changeClass = row.price_change_30m < 0 ? 'text-success' : 'text-danger';
+                    const changeIcon = row.price_change_30m < 0 ? '↓' : '↑';
+                    strategyHtml += `<br><small class="${changeClass}">${changeIcon}${Math.abs(row.price_change_30m).toFixed(1)}%</small>`;
+                }
+
                 html += `
                     <tr>
                         <td><small>${date}<br>${time}</small></td>
+                        <td>${strategyHtml}</td>
                         <td><small>${row.competition}</small></td>
                         <td><small>${row.market_type}</small></td>
                         <td><strong>${row.decision_type}</strong> ${row.runner}</td>

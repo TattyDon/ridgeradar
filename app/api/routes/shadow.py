@@ -91,6 +91,8 @@ class ShadowDecisionItem(BaseModel):
     net_pnl: Optional[float]
     niche: str
     minutes_to_start: int
+    hypothesis_name: Optional[str]  # Which strategy triggered this decision
+    price_change_30m: Optional[float]  # Momentum data for steam/drift strategies
 
 
 class NichePerformanceItem(BaseModel):
@@ -281,6 +283,7 @@ async def get_decisions(
     db: AsyncSession = Depends(get_db),
     outcome: Optional[str] = Query(None, description="Filter by outcome"),
     niche: Optional[str] = Query(None, description="Filter by niche"),
+    strategy: Optional[str] = Query(None, description="Filter by strategy/hypothesis"),
     limit: int = Query(50, ge=1, le=200),
 ):
     """
@@ -299,6 +302,12 @@ async def get_decisions(
         if niche:
             where_clauses.append("sd.niche = :niche")
             params["niche"] = niche
+        if strategy:
+            if strategy == "score_based":
+                where_clauses.append("sd.hypothesis_name IS NULL")
+            else:
+                where_clauses.append("sd.hypothesis_name = :strategy")
+                params["strategy"] = strategy
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
@@ -320,7 +329,9 @@ async def get_decisions(
                 sd.outcome,
                 sd.net_pnl,
                 sd.niche,
-                sd.minutes_to_start
+                sd.minutes_to_start,
+                sd.hypothesis_name,
+                sd.price_change_30m
             FROM shadow_decisions sd
             JOIN markets m ON sd.market_id = m.id
             JOIN events e ON m.event_id = e.id
@@ -362,6 +373,8 @@ async def get_decisions(
                 net_pnl=float(row.net_pnl) if row.net_pnl else None,
                 niche=row.niche or "",
                 minutes_to_start=row.minutes_to_start or 0,
+                hypothesis_name=row.hypothesis_name or "score_based",
+                price_change_30m=float(row.price_change_30m) if row.price_change_30m else None,
             )
             for row in rows
         ]
@@ -549,3 +562,82 @@ async def get_daily_pnl(
             for row in rows
         ],
     }
+
+
+@router.get("/strategies")
+async def get_strategies(db: AsyncSession = Depends(get_db)):
+    """
+    Get list of strategies (hypotheses) used in shadow decisions.
+
+    Used for populating filter dropdowns.
+    """
+    query = text("""
+        SELECT
+            COALESCE(hypothesis_name, 'score_based') AS strategy,
+            COUNT(*) AS decision_count
+        FROM shadow_decisions
+        GROUP BY COALESCE(hypothesis_name, 'score_based')
+        ORDER BY COUNT(*) DESC
+    """)
+
+    result = await db.execute(query)
+    rows = result.fetchall()
+
+    return [
+        {"name": row.strategy, "count": row.decision_count}
+        for row in rows
+    ]
+
+
+class StrategyPerformanceItem(BaseModel):
+    """Performance breakdown by strategy/hypothesis."""
+    strategy: str
+    total_decisions: int
+    pending: int
+    wins: int
+    losses: int
+    win_rate: float
+    avg_clv: float
+    net_pnl: float
+    roi_percent: float
+
+
+@router.get("/strategy-performance", response_model=list[StrategyPerformanceItem])
+async def get_strategy_performance(db: AsyncSession = Depends(get_db)):
+    """
+    Get performance breakdown by strategy.
+
+    Compares different trading strategies (hypotheses) head-to-head.
+    """
+    query = text("""
+        SELECT
+            COALESCE(hypothesis_name, 'score_based') AS strategy,
+            COUNT(*) AS total_decisions,
+            COUNT(*) FILTER (WHERE outcome = 'PENDING') AS pending,
+            COUNT(*) FILTER (WHERE outcome = 'WIN') AS wins,
+            COUNT(*) FILTER (WHERE outcome = 'LOSE') AS losses,
+            AVG(clv_percent) FILTER (WHERE clv_percent IS NOT NULL) AS avg_clv,
+            COALESCE(SUM(net_pnl), 0) AS net_pnl,
+            COALESCE(SUM(theoretical_stake), 0) AS total_staked
+        FROM shadow_decisions
+        GROUP BY COALESCE(hypothesis_name, 'score_based')
+        ORDER BY COUNT(*) DESC
+    """)
+
+    result = await db.execute(query)
+    rows = result.fetchall()
+
+    return [
+        StrategyPerformanceItem(
+            strategy=row.strategy,
+            total_decisions=row.total_decisions,
+            pending=row.pending or 0,
+            wins=row.wins or 0,
+            losses=row.losses or 0,
+            win_rate=round((row.wins / (row.wins + row.losses) * 100), 1) if (row.wins + row.losses) > 0 else 0.0,
+            avg_clv=float(row.avg_clv or 0),
+            net_pnl=float(row.net_pnl or 0),
+            roi_percent=round((float(row.net_pnl or 0) / float(row.total_staked) * 100), 2) if row.total_staked else 0.0,
+        )
+        for row in rows
+    ]
