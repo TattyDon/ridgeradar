@@ -131,7 +131,11 @@ class MomentumAnalyzer:
                 WHERE e.scheduled_start > :now
                   AND e.scheduled_start < :cutoff
                   AND m.status = 'OPEN'
-                  AND m.market_type NOT IN ('ASIAN_HANDICAP', 'HANDICAP')  -- Exclude handicap markets (extreme price swings)
+                  AND m.market_type NOT IN (
+                      'ASIAN_HANDICAP', 'HANDICAP',  -- Extreme price swings due to line movement
+                      'HALF_TIME_FULL_TIME',  -- 9 outcomes, very low liquidity per selection
+                      'CORRECT_SCORE'  -- 17+ outcomes, extremely low liquidity
+                  )
                 ORDER BY ms.market_id, ms.captured_at DESC
             ),
             historical_prices AS (
@@ -220,6 +224,10 @@ class MomentumAnalyzer:
                 if runner.current_back < 1.10 or runner.current_back > 50:
                     continue
 
+                # Filter out low liquidity markets (price moves are meaningless)
+                if runner.total_matched < 1000:  # Less than £1000 matched = very illiquid
+                    continue
+
                 # Determine primary change (use longest available timeframe)
                 primary_change = (
                     runner.change_4h or runner.change_2h or
@@ -231,8 +239,8 @@ class MomentumAnalyzer:
 
                 abs_change = abs(primary_change)
 
-                # Filter out extreme changes (>100% is almost certainly data noise)
-                if abs_change > 1.0:  # 100%
+                # Filter out extreme changes (>50% is almost certainly data noise or illiquid market)
+                if abs_change > 0.5:  # 50%
                     continue
 
                 if abs_change < min_change:

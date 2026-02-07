@@ -26,15 +26,32 @@ logger = structlog.get_logger(__name__)
 # Default Hypotheses
 # =============================================================================
 
+# =============================================================================
+# Default Hypotheses
+#
+# These hypotheses test different aspects of the strategy document:
+# 1. Steam following - does following sharp money movement work?
+# 2. Niche markets - are O/U or Correct Score markets more exploitable?
+# 3. Structural inefficiencies - do thin markets offer edge?
+# 4. Time windows - is 6-24h before kickoff optimal?
+# 5. Score validation - does our exploitability score predict outcomes?
+#
+# IMPORTANT: These run across ALL enabled competitions. Competition-specific
+# hypotheses should be created via the Strategy Builder UI.
+# =============================================================================
+
 DEFAULT_HYPOTHESES = [
+    # -------------------------------------------------------------------------
+    # HYPOTHESIS 1: Steam Following
+    # Strategy ref: "Sharp money moves first" - test if steam signals work
+    # -------------------------------------------------------------------------
     {
         "name": "steam_follower",
         "display_name": "Steam Follower",
         "description": (
-            "Backs selections that are steaming (price shortening) significantly "
-            "in markets with high exploitability scores. Theory: Sharp money moves "
-            "first, so following early steam in thin markets captures value before "
-            "the market fully adjusts."
+            "Backs selections that are steaming (price shortening) >5% in markets "
+            "with exploitability score >=30. Tests the core hypothesis that sharp "
+            "money moves first in thin markets. Time window: 6-24h (strategy optimal)."
         ),
         "enabled": True,
         "entry_criteria": {
@@ -42,54 +59,64 @@ DEFAULT_HYPOTHESES = [
             "min_price_change_pct": 5.0,
             "price_change_direction": "steaming",
             "price_change_window_minutes": 120,
-            "min_minutes_to_start": 60,
-            "max_minutes_to_start": 1440,  # 24 hours
-            "min_total_matched": 5000,
+            "min_minutes_to_start": 360,  # 6 hours - strategy optimal start
+            "max_minutes_to_start": 1440,  # 24 hours - strategy optimal end
+            "min_total_matched": 5000,  # £5k - strategy minimum
             "max_spread_pct": 5.0,
             "market_type_filter": ["MATCH_ODDS", "OVER_UNDER_25", "OVER_UNDER_15"],
         },
         "selection_logic": "momentum",
         "decision_type": "BACK",
     },
+
+    # -------------------------------------------------------------------------
+    # HYPOTHESIS 2: Pure Momentum (no score validation)
+    # Tests if momentum ALONE works without exploitability filtering
+    # -------------------------------------------------------------------------
     {
-        "name": "strong_steam_follower",
-        "display_name": "Strong Steam Follower",
+        "name": "strong_steam_pure",
+        "display_name": "Strong Steam (Pure Momentum)",
         "description": (
-            "More aggressive steam following - requires stronger price movement "
-            "(>10%) but lower score threshold. Tests whether momentum alone is "
-            "a sufficient signal without score validation."
+            "Tests pure momentum hypothesis - strong steam (>10%) with NO score "
+            "requirement. If this outperforms steam_follower, score adds no value. "
+            "If it underperforms, score validation is important."
         ),
         "enabled": True,
         "entry_criteria": {
-            "min_score": 0,  # No score requirement
+            "min_score": 0,  # No score requirement - pure momentum test
             "min_price_change_pct": 10.0,
             "price_change_direction": "steaming",
             "price_change_window_minutes": 120,
-            "min_minutes_to_start": 60,
-            "max_minutes_to_start": 1440,
-            "min_total_matched": 3000,
+            "min_minutes_to_start": 360,  # 6h
+            "max_minutes_to_start": 1440,  # 24h
+            "min_total_matched": 5000,
             "max_spread_pct": 6.0,
             "market_type_filter": ["MATCH_ODDS"],
         },
         "selection_logic": "momentum",
         "decision_type": "BACK",
     },
+
+    # -------------------------------------------------------------------------
+    # HYPOTHESIS 3: Contrarian Drift Fading
+    # Strategy ref: "Overreaction that will correct" in thin markets
+    # -------------------------------------------------------------------------
     {
         "name": "drift_fader",
-        "display_name": "Drift Fader",
+        "display_name": "Drift Fader (Contrarian)",
         "description": (
-            "Lays selections that are drifting (price lengthening) significantly "
-            "in thin markets. Theory: In low-liquidity markets, drift may represent "
-            "overreaction that will correct. Contrarian approach."
+            "Lays selections drifting >8% in high-score markets. Tests contrarian "
+            "hypothesis: drift in thin markets may be overreaction from recreational "
+            "money that sharps will correct. Higher risk strategy."
         ),
         "enabled": True,
         "entry_criteria": {
-            "min_score": 40,
+            "min_score": 40,  # Higher threshold for contrarian
             "min_price_change_pct": 8.0,
             "price_change_direction": "drifting",
             "price_change_window_minutes": 120,
-            "min_minutes_to_start": 60,
-            "max_minutes_to_start": 1440,
+            "min_minutes_to_start": 360,  # 6h
+            "max_minutes_to_start": 1440,  # 24h
             "min_total_matched": 5000,
             "max_spread_pct": 5.0,
             "market_type_filter": ["MATCH_ODDS"],
@@ -97,22 +124,27 @@ DEFAULT_HYPOTHESES = [
         "selection_logic": "contrarian",
         "decision_type": "LAY",
     },
+
+    # -------------------------------------------------------------------------
+    # HYPOTHESIS 4: Score-Based (Baseline)
+    # Tests if exploitability score alone predicts outcomes
+    # -------------------------------------------------------------------------
     {
         "name": "score_based_classic",
-        "display_name": "Score-Based Classic",
+        "display_name": "Score-Based (Baseline)",
         "description": (
-            "Original score-based approach: enters when exploitability score "
-            "exceeds threshold regardless of momentum. Baseline for comparison "
-            "with momentum-based hypotheses."
+            "Baseline hypothesis: enters on high score (>=50) regardless of momentum. "
+            "Tests whether structural inefficiency (score) alone identifies value. "
+            "Compare to momentum hypotheses to see if steam adds signal."
         ),
         "enabled": True,
         "entry_criteria": {
-            "min_score": 50,
+            "min_score": 50,  # High score threshold
             "min_price_change_pct": 0,  # No momentum requirement
             "price_change_direction": None,
             "price_change_window_minutes": 0,
-            "min_minutes_to_start": 30,
-            "max_minutes_to_start": 480,  # 8 hours
+            "min_minutes_to_start": 360,  # 6h - aligned with strategy
+            "max_minutes_to_start": 1440,  # 24h
             "min_total_matched": 5000,
             "max_spread_pct": 4.0,
             "market_type_filter": ["MATCH_ODDS", "OVER_UNDER_25"],
@@ -120,27 +152,92 @@ DEFAULT_HYPOTHESES = [
         "selection_logic": "score_based",
         "decision_type": "BACK",
     },
+
+    # -------------------------------------------------------------------------
+    # HYPOTHESIS 5: Over/Under Specialist
+    # Strategy ref: "Niche market types" - O/U may be less efficient
+    # -------------------------------------------------------------------------
     {
-        "name": "under_specialist",
-        "display_name": "Under Goals Specialist",
+        "name": "over_under_specialist",
+        "display_name": "Over/Under Specialist",
         "description": (
-            "Focuses exclusively on Under goals markets with steam signals. "
-            "Tests whether steam in Over/Under markets is more predictive "
-            "than in Match Odds."
+            "Focuses on O/U markets with steam. Strategy suggests these are 'ignored "
+            "vs Match Odds' and may have structural inefficiencies. Tests whether "
+            "O/U markets are more exploitable than Match Odds."
         ),
         "enabled": True,
         "entry_criteria": {
-            "min_score": 25,
+            "min_score": 25,  # Lower threshold for niche market
             "min_price_change_pct": 4.0,
             "price_change_direction": "steaming",
             "price_change_window_minutes": 120,
-            "min_minutes_to_start": 120,
-            "max_minutes_to_start": 1440,
-            "min_total_matched": 3000,
+            "min_minutes_to_start": 360,  # 6h
+            "max_minutes_to_start": 1440,  # 24h
+            "min_total_matched": 3000,  # Lower for niche markets
             "max_spread_pct": 6.0,
             "market_type_filter": ["OVER_UNDER_25", "OVER_UNDER_15", "OVER_UNDER_35"],
         },
         "selection_logic": "momentum",
+        "decision_type": "BACK",
+    },
+
+    # -------------------------------------------------------------------------
+    # HYPOTHESIS 6: Correct Score Specialist
+    # Strategy ref: "Correct Score ignored" - test if this creates edge
+    # NOTE: We explicitly include CORRECT_SCORE here despite movers page filter
+    # -------------------------------------------------------------------------
+    {
+        "name": "correct_score_value",
+        "display_name": "Correct Score Value",
+        "description": (
+            "Tests Correct Score markets - strategy identifies these as 'ignored'. "
+            "Lower liquidity threshold as CS markets are naturally thinner. "
+            "High risk/reward - many outcomes but potentially inefficient pricing."
+        ),
+        "enabled": True,
+        "entry_criteria": {
+            "min_score": 35,
+            "min_price_change_pct": 0,  # No momentum - score-based for CS
+            "price_change_direction": None,
+            "price_change_window_minutes": 0,
+            "min_minutes_to_start": 360,  # 6h
+            "max_minutes_to_start": 1440,  # 24h
+            "min_total_matched": 1000,  # Lower threshold - CS is thinner
+            "max_spread_pct": 8.0,  # Wider spread tolerance for CS
+            "min_price": 3.0,  # Avoid very short prices
+            "max_price": 30.0,  # Avoid extreme longshots
+            "market_type_filter": ["CORRECT_SCORE"],
+        },
+        "selection_logic": "score_based",
+        "decision_type": "BACK",
+    },
+
+    # -------------------------------------------------------------------------
+    # HYPOTHESIS 7: Shallow Market Test
+    # Strategy ref: "Too small for institutions" - test if edge exists
+    # -------------------------------------------------------------------------
+    {
+        "name": "shallow_market_edge",
+        "display_name": "Shallow Market Edge",
+        "description": (
+            "Tests the 'shallow market' hypothesis - markets with £1k-£5k matched "
+            "may be ignored by institutions but still tradeable. Higher score "
+            "threshold required due to lower liquidity reliability."
+        ),
+        "enabled": True,
+        "entry_criteria": {
+            "min_score": 45,  # Higher threshold for thin markets
+            "min_price_change_pct": 0,  # Score-based, not momentum
+            "price_change_direction": None,
+            "price_change_window_minutes": 0,
+            "min_minutes_to_start": 360,
+            "max_minutes_to_start": 1440,
+            "min_total_matched": 1000,  # Low liquidity threshold
+            "max_total_matched": 5000,  # CAP at £5k - only shallow markets
+            "max_spread_pct": 7.0,  # Accept wider spreads
+            "market_type_filter": ["MATCH_ODDS", "OVER_UNDER_25"],
+        },
+        "selection_logic": "score_based",
         "decision_type": "BACK",
     },
 ]

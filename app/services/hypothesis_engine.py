@@ -135,7 +135,7 @@ class HypothesisEngine:
                   AND m.status = 'OPEN'
                   AND (m.in_play = false OR m.in_play IS NULL)
                   AND c.enabled = true
-                  AND m.market_type NOT IN ('ASIAN_HANDICAP', 'HANDICAP')  -- Exclude handicap (extreme swings)
+                  AND m.market_type NOT IN ('ASIAN_HANDICAP', 'HANDICAP')  -- Line movement, not price movement
                 ORDER BY ms.market_id, ms.captured_at DESC
             ),
             historical_30m AS (
@@ -396,9 +396,14 @@ class HypothesisEngine:
         if float(signal.spread_pct) > max_spread:
             return None
 
-        # Check liquidity
+        # Check liquidity (each hypothesis can set its own threshold)
         min_matched = criteria.get("min_total_matched", 0)
         if float(signal.total_matched) < min_matched:
+            return None
+
+        # Check max liquidity (for shallow market hypothesis)
+        max_matched = criteria.get("max_total_matched")
+        if max_matched and float(signal.total_matched) > max_matched:
             return None
 
         # Check market type filter
