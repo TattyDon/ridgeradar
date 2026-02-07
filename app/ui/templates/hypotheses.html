@@ -1,0 +1,639 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+    .hypothesis-card {
+        transition: all 0.2s ease;
+    }
+    .hypothesis-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .hypothesis-card.disabled {
+        opacity: 0.6;
+    }
+    .criteria-badge {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+    }
+    .pnl-positive { color: #22c55e; }
+    .pnl-negative { color: #ef4444; }
+    .stat-mini {
+        font-size: 0.875rem;
+    }
+    .stat-mini .value {
+        font-weight: bold;
+        font-size: 1rem;
+    }
+    .form-section {
+        background: rgba(51, 65, 85, 0.5);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    .form-section h6 {
+        margin-bottom: 1rem;
+        color: #94a3b8;
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .direction-btn {
+        flex: 1;
+    }
+    .direction-btn.active {
+        background-color: var(--bs-primary) !important;
+        border-color: var(--bs-primary) !important;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Page Header -->
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h4 class="mb-0">
+                    <i class="bi bi-lightbulb me-2"></i>Strategy Builder
+                </h4>
+                <p class="text-muted mb-0">Create and manage trading hypotheses for shadow testing</p>
+            </div>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createModal">
+                <i class="bi bi-plus-lg me-2"></i>New Strategy
+            </button>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body" id="quick-stats">
+                <div class="text-center py-3">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hypotheses Grid -->
+    <div class="col-12">
+        <div class="row g-3" id="hypotheses-container">
+            <div class="col-12 text-center py-4">
+                <div class="spinner-border text-primary" role="status"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create/Edit Modal -->
+<div class="modal fade" id="createModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="modalTitle">
+                    <i class="bi bi-plus-lg me-2"></i>Create New Strategy
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="hypothesis-form">
+                    <input type="hidden" id="edit-mode" value="create">
+                    <input type="hidden" id="edit-name" value="">
+
+                    <!-- Basic Info -->
+                    <div class="form-section">
+                        <h6><i class="bi bi-info-circle me-2"></i>Basic Information</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Strategy Name (ID)</label>
+                                <input type="text" class="form-control" id="input-name" required
+                                    placeholder="e.g., late_steam_follower" pattern="[a-z_]+"
+                                    title="Lowercase letters and underscores only">
+                                <small class="text-muted">Lowercase with underscores, no spaces</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Display Name</label>
+                                <input type="text" class="form-control" id="input-display-name" required
+                                    placeholder="e.g., Late Steam Follower">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" id="input-description" rows="2" required
+                                    placeholder="Describe what this strategy is testing..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Decision Type -->
+                    <div class="form-section">
+                        <h6><i class="bi bi-arrow-left-right me-2"></i>Decision Type</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Trade Direction</label>
+                                <div class="btn-group w-100" role="group">
+                                    <input type="radio" class="btn-check" name="decision-type" id="dt-back" value="BACK" checked>
+                                    <label class="btn btn-outline-success" for="dt-back">
+                                        <i class="bi bi-arrow-up me-1"></i>BACK (Bet For)
+                                    </label>
+                                    <input type="radio" class="btn-check" name="decision-type" id="dt-lay" value="LAY">
+                                    <label class="btn btn-outline-danger" for="dt-lay">
+                                        <i class="bi bi-arrow-down me-1"></i>LAY (Bet Against)
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Selection Logic</label>
+                                <select class="form-select" id="input-selection-logic">
+                                    <option value="HIGHEST_SCORE">Highest Score</option>
+                                    <option value="BEST_VALUE">Best Value (Price × Score)</option>
+                                    <option value="SPECIFIC_RUNNER">Specific Runner</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Entry Criteria -->
+                    <div class="form-section">
+                        <h6><i class="bi bi-funnel me-2"></i>Entry Criteria</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Min Score</label>
+                                <input type="number" class="form-control" id="input-min-score"
+                                    value="30" min="0" max="100" step="5">
+                                <small class="text-muted">Exploitability score threshold</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Min Price</label>
+                                <input type="number" class="form-control" id="input-min-price"
+                                    value="1.10" min="1.01" max="50" step="0.1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Max Price</label>
+                                <input type="number" class="form-control" id="input-max-price"
+                                    value="10.0" min="1.01" max="100" step="0.5">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Momentum Criteria -->
+                    <div class="form-section">
+                        <h6><i class="bi bi-graph-up-arrow me-2"></i>Momentum Criteria (Optional)</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Price Movement Direction</label>
+                                <div class="btn-group w-100" role="group">
+                                    <input type="radio" class="btn-check" name="price-direction" id="pd-any" value="" checked>
+                                    <label class="btn btn-outline-secondary direction-btn" for="pd-any">Any</label>
+                                    <input type="radio" class="btn-check" name="price-direction" id="pd-steam" value="steaming">
+                                    <label class="btn btn-outline-success direction-btn" for="pd-steam">
+                                        <i class="bi bi-arrow-down-short"></i>Steaming
+                                    </label>
+                                    <input type="radio" class="btn-check" name="price-direction" id="pd-drift" value="drifting">
+                                    <label class="btn btn-outline-danger direction-btn" for="pd-drift">
+                                        <i class="bi bi-arrow-up-short"></i>Drifting
+                                    </label>
+                                </div>
+                                <small class="text-muted">Steaming = price shortening, Drifting = price lengthening</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Min Price Change %</label>
+                                <input type="number" class="form-control" id="input-min-change"
+                                    value="0" min="0" max="50" step="1">
+                                <small class="text-muted">0 = no momentum requirement</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Timing Criteria -->
+                    <div class="form-section">
+                        <h6><i class="bi bi-clock me-2"></i>Timing Criteria</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Min Time Before Kickoff</label>
+                                <select class="form-select" id="input-min-minutes">
+                                    <option value="15">15 minutes</option>
+                                    <option value="30">30 minutes</option>
+                                    <option value="60" selected>1 hour</option>
+                                    <option value="120">2 hours</option>
+                                    <option value="180">3 hours</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Max Time Before Kickoff</label>
+                                <select class="form-select" id="input-max-minutes">
+                                    <option value="360">6 hours</option>
+                                    <option value="720">12 hours</option>
+                                    <option value="1440" selected>24 hours</option>
+                                    <option value="2880">48 hours</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Market Types -->
+                    <div class="form-section">
+                        <h6><i class="bi bi-grid me-2"></i>Market Types (Optional)</h6>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="mt-all" checked>
+                                    <label class="form-check-label" for="mt-all">All Markets</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input market-type-check" type="checkbox" id="mt-ou25" value="OVER_UNDER_25" disabled>
+                                    <label class="form-check-label" for="mt-ou25">O/U 2.5 Goals</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input market-type-check" type="checkbox" id="mt-ou15" value="OVER_UNDER_15" disabled>
+                                    <label class="form-check-label" for="mt-ou15">O/U 1.5 Goals</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input market-type-check" type="checkbox" id="mt-ou35" value="OVER_UNDER_35" disabled>
+                                    <label class="form-check-label" for="mt-ou35">O/U 3.5 Goals</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input market-type-check" type="checkbox" id="mt-match" value="MATCH_ODDS" disabled>
+                                    <label class="form-check-label" for="mt-match">Match Odds</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-check">
+                                    <input class="form-check-input market-type-check" type="checkbox" id="mt-btts" value="BOTH_TEAMS_TO_SCORE" disabled>
+                                    <label class="form-check-label" for="mt-btts">Both Teams to Score</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Enabled -->
+                    <div class="form-check form-switch mt-3">
+                        <input class="form-check-input" type="checkbox" id="input-enabled" checked>
+                        <label class="form-check-label" for="input-enabled">Enable immediately (start collecting decisions)</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-btn">
+                    <i class="bi bi-check-lg me-2"></i>Create Strategy
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let hypotheses = [];
+
+    document.addEventListener('DOMContentLoaded', function() {
+        loadHypotheses();
+        setupFormHandlers();
+
+        // Auto-refresh every 60 seconds
+        setInterval(loadHypotheses, 60000);
+    });
+
+    function setupFormHandlers() {
+        // Market type "All" toggle
+        document.getElementById('mt-all').addEventListener('change', function() {
+            const checks = document.querySelectorAll('.market-type-check');
+            checks.forEach(c => {
+                c.disabled = this.checked;
+                if (this.checked) c.checked = false;
+            });
+        });
+
+        // Save button
+        document.getElementById('save-btn').addEventListener('click', saveHypothesis);
+
+        // Reset form when modal closes
+        document.getElementById('createModal').addEventListener('hidden.bs.modal', resetForm);
+    }
+
+    async function loadHypotheses() {
+        try {
+            const response = await fetch('/api/hypotheses/');
+            hypotheses = await response.json();
+            renderHypotheses();
+            renderQuickStats();
+        } catch (e) {
+            console.error('Failed to load hypotheses:', e);
+            document.getElementById('hypotheses-container').innerHTML =
+                '<div class="col-12"><div class="alert alert-danger">Failed to load strategies</div></div>';
+        }
+    }
+
+    function renderQuickStats() {
+        const total = hypotheses.length;
+        const enabled = hypotheses.filter(h => h.enabled).length;
+        const totalDecisions = hypotheses.reduce((sum, h) => sum + h.total_decisions, 0);
+        const totalPnl = hypotheses.reduce((sum, h) => sum + h.total_pnl, 0);
+        const profitable = hypotheses.filter(h => h.total_pnl > 0 && h.total_decisions >= 10).length;
+
+        const pnlClass = totalPnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+
+        document.getElementById('quick-stats').innerHTML = `
+            <div class="row text-center">
+                <div class="col">
+                    <div class="stat-mini">
+                        <div class="value text-info">${total}</div>
+                        <div class="text-muted">Total Strategies</div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="stat-mini">
+                        <div class="value text-success">${enabled}</div>
+                        <div class="text-muted">Active</div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="stat-mini">
+                        <div class="value">${totalDecisions}</div>
+                        <div class="text-muted">Total Decisions</div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="stat-mini">
+                        <div class="value ${pnlClass}">£${totalPnl.toFixed(2)}</div>
+                        <div class="text-muted">Combined P&L</div>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="stat-mini">
+                        <div class="value text-warning">${profitable}</div>
+                        <div class="text-muted">Profitable (10+ decisions)</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderHypotheses() {
+        if (hypotheses.length === 0) {
+            document.getElementById('hypotheses-container').innerHTML = `
+                <div class="col-12 text-center py-5">
+                    <i class="bi bi-lightbulb fs-1 text-muted"></i>
+                    <h5 class="mt-3">No Strategies Yet</h5>
+                    <p class="text-muted">Create your first trading hypothesis to start testing.</p>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createModal">
+                        <i class="bi bi-plus-lg me-2"></i>Create Strategy
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '';
+        for (const h of hypotheses) {
+            const pnlClass = h.total_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+            const winRateClass = h.win_rate >= 55 ? 'text-success' : h.win_rate >= 50 ? 'text-warning' : 'text-danger';
+            const disabledClass = h.enabled ? '' : 'disabled';
+
+            // Build criteria badges
+            let badges = [];
+            if (h.min_score > 0) badges.push(`Score ≥${h.min_score}`);
+            if (h.min_price_change_pct > 0) {
+                const dir = h.price_change_direction === 'steaming' ? '↓' : h.price_change_direction === 'drifting' ? '↑' : '±';
+                badges.push(`${dir}${h.min_price_change_pct}%`);
+            }
+            badges.push(h.time_window);
+
+            const badgeHtml = badges.map(b => `<span class="badge bg-secondary criteria-badge me-1">${b}</span>`).join('');
+
+            html += `
+                <div class="col-md-6 col-lg-4">
+                    <div class="card hypothesis-card h-100 ${disabledClass}">
+                        <div class="card-header d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="mb-0">${h.display_name}</h6>
+                                <small class="text-muted">${h.name}</small>
+                            </div>
+                            <div class="dropdown">
+                                <button class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="dropdown">
+                                    <i class="bi bi-three-dots-vertical"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="#" onclick="editHypothesis('${h.name}')">
+                                        <i class="bi bi-pencil me-2"></i>Edit
+                                    </a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="toggleHypothesis('${h.name}')">
+                                        <i class="bi bi-toggle-${h.enabled ? 'on' : 'off'} me-2"></i>${h.enabled ? 'Disable' : 'Enable'}
+                                    </a></li>
+                                    ${h.total_decisions === 0 ? `
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item text-danger" href="#" onclick="deleteHypothesis('${h.name}')">
+                                        <i class="bi bi-trash me-2"></i>Delete
+                                    </a></li>
+                                    ` : ''}
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p class="small text-muted mb-2">${h.description}</p>
+                            <div class="mb-3">${badgeHtml}</div>
+
+                            <div class="row g-2 text-center">
+                                <div class="col-4">
+                                    <div class="small text-muted">Decisions</div>
+                                    <div class="fw-bold">${h.total_decisions}</div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="small text-muted">Win Rate</div>
+                                    <div class="fw-bold ${winRateClass}">${h.win_rate.toFixed(1)}%</div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="small text-muted">P&L</div>
+                                    <div class="fw-bold ${pnlClass}">£${h.total_pnl.toFixed(2)}</div>
+                                </div>
+                            </div>
+
+                            ${h.avg_clv !== null ? `
+                            <div class="mt-2 text-center">
+                                <small class="text-muted">Avg CLV: <span class="${h.avg_clv >= 0 ? 'pnl-positive' : 'pnl-negative'}">${h.avg_clv >= 0 ? '+' : ''}${h.avg_clv.toFixed(2)}%</span></small>
+                            </div>
+                            ` : ''}
+                        </div>
+                        <div class="card-footer d-flex justify-content-between align-items-center">
+                            <span class="badge ${h.enabled ? 'bg-success' : 'bg-secondary'}">
+                                ${h.enabled ? 'Active' : 'Disabled'}
+                            </span>
+                            <span class="badge bg-${h.decision_type === 'BACK' ? 'success' : 'danger'}">
+                                ${h.decision_type}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        document.getElementById('hypotheses-container').innerHTML = html;
+    }
+
+    function editHypothesis(name) {
+        const h = hypotheses.find(x => x.name === name);
+        if (!h) return;
+
+        // Fetch full details including entry_criteria
+        fetch(`/api/hypotheses/${name}`)
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('edit-mode').value = 'edit';
+                document.getElementById('edit-name').value = name;
+                document.getElementById('modalTitle').innerHTML = '<i class="bi bi-pencil me-2"></i>Edit Strategy';
+                document.getElementById('save-btn').innerHTML = '<i class="bi bi-check-lg me-2"></i>Save Changes';
+
+                // Populate form
+                document.getElementById('input-name').value = data.name;
+                document.getElementById('input-name').disabled = true;
+                document.getElementById('input-display-name').value = data.display_name;
+                document.getElementById('input-description').value = data.description;
+
+                // Decision type
+                document.querySelector(`input[name="decision-type"][value="${data.decision_type}"]`).checked = true;
+                document.getElementById('input-selection-logic').value = data.selection_logic;
+
+                // Entry criteria
+                const c = data.entry_criteria || {};
+                document.getElementById('input-min-score').value = c.min_score || 30;
+                document.getElementById('input-min-price').value = c.min_price || 1.10;
+                document.getElementById('input-max-price').value = c.max_price || 10.0;
+                document.getElementById('input-min-change').value = c.min_price_change_pct || 0;
+
+                // Price direction
+                const dir = c.price_change_direction || '';
+                document.querySelector(`input[name="price-direction"][value="${dir}"]`).checked = true;
+
+                // Timing
+                document.getElementById('input-min-minutes').value = c.min_minutes_to_start || 60;
+                document.getElementById('input-max-minutes').value = c.max_minutes_to_start || 1440;
+
+                // Market types
+                if (c.market_types && c.market_types.length > 0) {
+                    document.getElementById('mt-all').checked = false;
+                    document.querySelectorAll('.market-type-check').forEach(cb => {
+                        cb.disabled = false;
+                        cb.checked = c.market_types.includes(cb.value);
+                    });
+                }
+
+                document.getElementById('input-enabled').checked = data.enabled;
+
+                // Show modal
+                new bootstrap.Modal(document.getElementById('createModal')).show();
+            });
+    }
+
+    async function toggleHypothesis(name) {
+        try {
+            await fetch(`/api/hypotheses/${name}/toggle`, { method: 'POST' });
+            loadHypotheses();
+        } catch (e) {
+            alert('Failed to toggle hypothesis');
+        }
+    }
+
+    async function deleteHypothesis(name) {
+        if (!confirm(`Are you sure you want to delete "${name}"? This cannot be undone.`)) return;
+
+        try {
+            const response = await fetch(`/api/hypotheses/${name}`, { method: 'DELETE' });
+            if (!response.ok) {
+                const data = await response.json();
+                alert(data.detail || 'Failed to delete');
+                return;
+            }
+            loadHypotheses();
+        } catch (e) {
+            alert('Failed to delete hypothesis');
+        }
+    }
+
+    async function saveHypothesis() {
+        const mode = document.getElementById('edit-mode').value;
+        const name = mode === 'edit' ? document.getElementById('edit-name').value : document.getElementById('input-name').value;
+
+        // Gather form data
+        const data = {
+            name: document.getElementById('input-name').value,
+            display_name: document.getElementById('input-display-name').value,
+            description: document.getElementById('input-description').value,
+            decision_type: document.querySelector('input[name="decision-type"]:checked').value,
+            selection_logic: document.getElementById('input-selection-logic').value,
+            min_score: parseFloat(document.getElementById('input-min-score').value),
+            min_price: parseFloat(document.getElementById('input-min-price').value),
+            max_price: parseFloat(document.getElementById('input-max-price').value),
+            min_price_change_pct: parseFloat(document.getElementById('input-min-change').value),
+            price_change_direction: document.querySelector('input[name="price-direction"]:checked').value || null,
+            min_minutes_to_start: parseInt(document.getElementById('input-min-minutes').value),
+            max_minutes_to_start: parseInt(document.getElementById('input-max-minutes').value),
+            enabled: document.getElementById('input-enabled').checked,
+        };
+
+        // Market types
+        if (!document.getElementById('mt-all').checked) {
+            const selected = [];
+            document.querySelectorAll('.market-type-check:checked').forEach(cb => {
+                selected.push(cb.value);
+            });
+            if (selected.length > 0) {
+                data.market_types = selected;
+            }
+        }
+
+        try {
+            let response;
+            if (mode === 'edit') {
+                response = await fetch(`/api/hypotheses/${name}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+            } else {
+                response = await fetch('/api/hypotheses/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+            }
+
+            if (!response.ok) {
+                const err = await response.json();
+                alert(err.detail || 'Failed to save');
+                return;
+            }
+
+            bootstrap.Modal.getInstance(document.getElementById('createModal')).hide();
+            loadHypotheses();
+        } catch (e) {
+            alert('Failed to save hypothesis');
+        }
+    }
+
+    function resetForm() {
+        document.getElementById('hypothesis-form').reset();
+        document.getElementById('edit-mode').value = 'create';
+        document.getElementById('edit-name').value = '';
+        document.getElementById('input-name').disabled = false;
+        document.getElementById('modalTitle').innerHTML = '<i class="bi bi-plus-lg me-2"></i>Create New Strategy';
+        document.getElementById('save-btn').innerHTML = '<i class="bi bi-check-lg me-2"></i>Create Strategy';
+
+        // Reset market types
+        document.getElementById('mt-all').checked = true;
+        document.querySelectorAll('.market-type-check').forEach(cb => {
+            cb.disabled = true;
+            cb.checked = false;
+        });
+    }
+</script>
+{% endblock %}

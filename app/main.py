@@ -131,6 +131,15 @@ async def shadow_page(request: Request):
     )
 
 
+@app.get("/strategies", response_class=HTMLResponse)
+async def strategies_page(request: Request):
+    """Strategy builder page for managing trading hypotheses."""
+    return templates.TemplateResponse(
+        "hypotheses.html",
+        {"request": request, "title": "Strategy Builder"},
+    )
+
+
 @app.get("/movers", response_class=HTMLResponse)
 async def movers_page(request: Request):
     """Market movers page - steamers and drifters."""

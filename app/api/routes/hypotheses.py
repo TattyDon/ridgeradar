@@ -99,6 +99,45 @@ class HypothesisDecision(BaseModel):
     net_pnl: Optional[float]
 
 
+class HypothesisCreate(BaseModel):
+    """Request model for creating a new hypothesis."""
+    name: str  # snake_case identifier
+    display_name: str  # Human-readable name
+    description: str
+    selection_logic: str = "HIGHEST_SCORE"  # HIGHEST_SCORE, BEST_VALUE, SPECIFIC_RUNNER
+    decision_type: str = "BACK"  # BACK or LAY
+    enabled: bool = True
+
+    # Entry criteria
+    min_score: float = 30.0
+    min_price_change_pct: float = 0.0
+    price_change_direction: Optional[str] = None  # "steaming", "drifting", or None
+    min_minutes_to_start: int = 60
+    max_minutes_to_start: int = 1440
+    market_types: Optional[list[str]] = None  # e.g., ["OVER_UNDER_25"], None means all
+    min_price: float = 1.10
+    max_price: float = 10.0
+
+
+class HypothesisUpdate(BaseModel):
+    """Request model for updating an existing hypothesis."""
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    selection_logic: Optional[str] = None
+    decision_type: Optional[str] = None
+    enabled: Optional[bool] = None
+
+    # Entry criteria
+    min_score: Optional[float] = None
+    min_price_change_pct: Optional[float] = None
+    price_change_direction: Optional[str] = None
+    min_minutes_to_start: Optional[int] = None
+    max_minutes_to_start: Optional[int] = None
+    market_types: Optional[list[str]] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+
+
 # =============================================================================
 # Endpoints
 # =============================================================================
@@ -480,6 +519,196 @@ async def seed_hypotheses(db: AsyncSession = Depends(get_db)):
         return {"status": "success", **stats}
     except Exception as e:
         logger.error("seed_hypotheses_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/", status_code=201)
+async def create_hypothesis(
+    data: HypothesisCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create a new trading hypothesis.
+
+    The hypothesis will start collecting paper trading decisions immediately
+    if enabled and Phase 2 is active.
+    """
+    try:
+        # Check if name already exists
+        existing = await db.execute(
+            select(TradingHypothesis).where(TradingHypothesis.name == data.name)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail=f"Hypothesis '{data.name}' already exists")
+
+        # Build entry criteria dict
+        entry_criteria = {
+            "min_score": data.min_score,
+            "min_price_change_pct": data.min_price_change_pct,
+            "min_minutes_to_start": data.min_minutes_to_start,
+            "max_minutes_to_start": data.max_minutes_to_start,
+            "min_price": data.min_price,
+            "max_price": data.max_price,
+        }
+
+        if data.price_change_direction:
+            entry_criteria["price_change_direction"] = data.price_change_direction
+
+        if data.market_types:
+            entry_criteria["market_types"] = data.market_types
+
+        # Create hypothesis
+        hypothesis = TradingHypothesis(
+            name=data.name,
+            display_name=data.display_name,
+            description=data.description,
+            selection_logic=data.selection_logic,
+            decision_type=data.decision_type,
+            enabled=data.enabled,
+            entry_criteria=entry_criteria,
+        )
+
+        db.add(hypothesis)
+        await db.commit()
+        await db.refresh(hypothesis)
+
+        logger.info(
+            "hypothesis_created",
+            name=data.name,
+            enabled=data.enabled,
+        )
+
+        return {
+            "status": "created",
+            "id": hypothesis.id,
+            "name": hypothesis.name,
+            "display_name": hypothesis.display_name,
+            "enabled": hypothesis.enabled,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("create_hypothesis_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/{hypothesis_name}")
+async def update_hypothesis(
+    hypothesis_name: str,
+    data: HypothesisUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update an existing trading hypothesis.
+
+    Only provided fields will be updated.
+    """
+    try:
+        result = await db.execute(
+            select(TradingHypothesis).where(TradingHypothesis.name == hypothesis_name)
+        )
+        hypothesis = result.scalar_one_or_none()
+
+        if not hypothesis:
+            raise HTTPException(status_code=404, detail=f"Hypothesis '{hypothesis_name}' not found")
+
+        # Update basic fields
+        if data.display_name is not None:
+            hypothesis.display_name = data.display_name
+        if data.description is not None:
+            hypothesis.description = data.description
+        if data.selection_logic is not None:
+            hypothesis.selection_logic = data.selection_logic
+        if data.decision_type is not None:
+            hypothesis.decision_type = data.decision_type
+        if data.enabled is not None:
+            hypothesis.enabled = data.enabled
+
+        # Update entry criteria
+        criteria = hypothesis.entry_criteria or {}
+
+        if data.min_score is not None:
+            criteria["min_score"] = data.min_score
+        if data.min_price_change_pct is not None:
+            criteria["min_price_change_pct"] = data.min_price_change_pct
+        if data.price_change_direction is not None:
+            criteria["price_change_direction"] = data.price_change_direction
+        if data.min_minutes_to_start is not None:
+            criteria["min_minutes_to_start"] = data.min_minutes_to_start
+        if data.max_minutes_to_start is not None:
+            criteria["max_minutes_to_start"] = data.max_minutes_to_start
+        if data.market_types is not None:
+            criteria["market_types"] = data.market_types
+        if data.min_price is not None:
+            criteria["min_price"] = data.min_price
+        if data.max_price is not None:
+            criteria["max_price"] = data.max_price
+
+        hypothesis.entry_criteria = criteria
+        await db.commit()
+
+        logger.info(
+            "hypothesis_updated",
+            name=hypothesis_name,
+        )
+
+        return {
+            "status": "updated",
+            "name": hypothesis_name,
+            "enabled": hypothesis.enabled,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("update_hypothesis_error", hypothesis=hypothesis_name, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{hypothesis_name}")
+async def delete_hypothesis(
+    hypothesis_name: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Delete a trading hypothesis.
+
+    WARNING: This will also delete all associated shadow decisions.
+    Only use for hypotheses with no valuable data.
+    """
+    try:
+        result = await db.execute(
+            select(TradingHypothesis).where(TradingHypothesis.name == hypothesis_name)
+        )
+        hypothesis = result.scalar_one_or_none()
+
+        if not hypothesis:
+            raise HTTPException(status_code=404, detail=f"Hypothesis '{hypothesis_name}' not found")
+
+        # Check if it has decisions
+        decision_count = await db.execute(text("""
+            SELECT COUNT(*) FROM shadow_decisions WHERE hypothesis_id = :hid
+        """), {"hid": hypothesis.id})
+        count = decision_count.scalar() or 0
+
+        if count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete hypothesis with {count} decisions. Disable it instead."
+            )
+
+        await db.delete(hypothesis)
+        await db.commit()
+
+        logger.info("hypothesis_deleted", name=hypothesis_name)
+
+        return {"status": "deleted", "name": hypothesis_name}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("delete_hypothesis_error", hypothesis=hypothesis_name, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
