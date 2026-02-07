@@ -261,6 +261,10 @@ def calculate_pnl(
 
 ```python
 SHADOW_TRADING_TASKS = {
+    # =========================================================================
+    # Score-Based Shadow Trading (Original)
+    # =========================================================================
+
     # Make decisions on high-scoring markets approaching kickoff
     "make_shadow_decisions": {
         "schedule": "every 2 minutes",
@@ -282,11 +286,22 @@ SHADOW_TRADING_TASKS = {
         "enabled_when": "phase2_active",
     },
 
-    # Aggregate performance metrics
-    "aggregate_shadow_stats": {
-        "schedule": "hourly",
-        "description": "Calculate running totals, win rates, CLV correlation",
+    # =========================================================================
+    # Hypothesis-Based Evaluation (NEW)
+    # =========================================================================
+
+    # Evaluate all active hypotheses against momentum signals
+    "evaluate_hypotheses": {
+        "schedule": "every 2 minutes",
+        "description": "Find momentum signals, match against hypotheses, create decisions",
         "enabled_when": "phase2_active",
+    },
+
+    # Update denormalized hypothesis statistics
+    "update_hypothesis_stats": {
+        "schedule": "hourly at :15",
+        "description": "Aggregate win/loss/P&L stats for each hypothesis",
+        "enabled_when": "always",
     },
 }
 ```
@@ -382,9 +397,18 @@ GET  /api/shadow/status           # Current phase, activation status
 GET  /api/shadow/decisions        # List recent decisions
 GET  /api/shadow/decision/{id}    # Single decision details
 GET  /api/shadow/performance      # Aggregate performance metrics
-GET  /api/shadow/performance/niche # Performance broken down by niche
+GET  /api/shadow/niche-performance # Performance broken down by niche
 GET  /api/shadow/clv-correlation  # CLV vs outcome analysis
-POST /api/shadow/toggle           # Enable/disable (admin only)
+GET  /api/shadow/daily-pnl        # Daily P&L for charting
+
+# Hypothesis Endpoints (NEW)
+GET  /api/hypotheses/                    # List all hypotheses with stats
+GET  /api/hypotheses/compare             # Compare performance across hypotheses
+GET  /api/hypotheses/{name}              # Get hypothesis details
+GET  /api/hypotheses/{name}/decisions    # Get decisions for a hypothesis
+GET  /api/hypotheses/{name}/daily-pnl    # Daily P&L for a hypothesis
+POST /api/hypotheses/{name}/toggle       # Enable/disable a hypothesis
+POST /api/hypotheses/seed                # Seed default hypotheses
 
 # Response always includes safety flag
 {
@@ -448,6 +472,8 @@ shadow_trading:
 
 Before considering Phase 3, shadow trading should demonstrate:
 
+### Overall System Metrics
+
 | Metric | Target | Measurement Period |
 |--------|--------|-------------------|
 | Sample size | 500+ decisions | - |
@@ -458,98 +484,206 @@ Before considering Phase 3, shadow trading should demonstrate:
 | Max drawdown | < 20% of peak | Rolling basis |
 | Sharpe ratio | > 1.0 | Daily returns |
 
+### Per-Hypothesis Metrics (NEW)
+
+| Metric | Target | Notes |
+|--------|--------|-------|
+| Decisions per hypothesis | 500+ | Statistical significance |
+| ROI after costs | > 3% | Per hypothesis |
+| Positive CLV rate | > 50% | Indicates edge capture |
+| Stability period | 3+ months | Edge must persist |
+
+### Hypothesis Verdicts
+
+Based on performance, each hypothesis receives a verdict:
+
+| Verdict | Criteria |
+|---------|----------|
+| **PROMISING** | ROI > 3%, positive CLV, 50+ settled decisions |
+| **MARGINAL** | ROI > 0% but < 3%, needs more data |
+| **UNPROFITABLE** | ROI < 0% after 100+ decisions |
+| **INSUFFICIENT_DATA** | < 50 settled decisions |
+
+Only **PROMISING** hypotheses should be considered for Phase 3.
+
 ---
 
-## Future Research: Price Momentum (Steamers/Drifters)
+## Trading Hypotheses System
 
 ### Overview
 
-The system tracks **price movements over time**:
-- **Steamers**: Prices shortening (getting lower odds) - money coming in
-- **Drifters**: Prices lengthening (getting higher odds) - money moving away
+The system now supports **multiple concurrent trading hypotheses**, each with different entry criteria and selection logic. This allows scientific A/B testing of different trading strategies.
 
-This is tracked via the **Market Movers** page (`/movers`), comparing current prices to 30m, 1h, 2h, and 4h historical snapshots.
+### What is a Hypothesis?
 
-### Why This Is NOT In The Scoring Engine (Yet)
+A trading hypothesis defines:
+- **Entry criteria** (score threshold, momentum requirements, time windows)
+- **Selection logic** (momentum-based, score-based, contrarian)
+- **Decision type** (BACK or LAY)
 
-**Current scoring factors are structural/factual:**
-- Spread (market microstructure)
-- Volume (liquidity/efficiency)
-- Depth (order book thickness)
-- Volatility (price stability)
-- Update rate (market activity)
+Multiple hypotheses can run simultaneously, each generating independent shadow decisions.
 
-**Momentum is different:**
-- It's an **observed behavior** without known cause
-- Could be smart money, public overreaction, or noise
-- We have **zero data** proving steamers win more often
-- Adding it now would pollute the scoring model with unvalidated assumptions
+### Default Hypotheses
 
-### The Real Prize: Predicting Movements
+The system comes with 5 pre-configured hypotheses:
 
-> **Key Insight**: If we can identify patterns that PREDICT which selections will steam or drift BEFORE they move, we absolutely have an edge.
+| Name | Strategy | Entry Criteria |
+|------|----------|----------------|
+| **steam_follower** | Back steamers in thin markets | Score ≥30, steaming >5%, 1-24h to kickoff |
+| **strong_steam_follower** | Pure momentum play | No score requirement, steaming >10% |
+| **drift_fader** | Lay drifters (contrarian) | Score ≥40, drifting >8% |
+| **score_based_classic** | Traditional score-only | Score ≥50, no momentum requirement |
+| **under_specialist** | O/U markets with steam | Score ≥25, steaming >4%, O/U markets only |
 
-Currently we **observe** movements after they happen (reactive). The goal is to **predict** them in advance (proactive).
+### Hypothesis Entry Criteria
 
-### Research Questions to Answer
+```python
+# Example: steam_follower hypothesis
+{
+    "min_score": 30,                      # Exploitability score threshold
+    "min_price_change_pct": 5.0,          # Minimum price movement %
+    "price_change_direction": "steaming", # "steaming", "drifting", or null
+    "price_change_window_minutes": 120,   # Lookback window for momentum
+    "min_minutes_to_start": 60,           # Earliest entry (1h before)
+    "max_minutes_to_start": 1440,         # Latest entry (24h before)
+    "min_total_matched": 5000,            # Minimum liquidity
+    "max_spread_pct": 5.0,                # Maximum bid-ask spread
+    "market_type_filter": ["MATCH_ODDS", "OVER_UNDER_25"]  # Optional
+}
+```
 
-1. **What preceded past steamers?**
-   - Early market formation patterns
-   - Initial price vs market average
-   - Spread/depth characteristics before the move
-   - Time patterns (how far from kickoff did moves start?)
+### How Hypotheses Are Evaluated
 
-2. **Do steamers actually win?**
-   - Track outcomes of selections that steamed
-   - Compare win rates: steamers vs drifters vs stable prices
-   - Calculate: `P(Win | Steamer)` vs `P(Win | Drifter)` vs `P(Win | Stable)`
+Every 2 minutes (when Phase 2 is active):
 
-3. **What triggers moves?**
-   - Team news correlation
-   - Social media sentiment (future data source)
-   - Weather changes
-   - Time of day patterns
-   - Competition-specific patterns
+1. **Signal Detection**: Scan all markets for price momentum signals
+2. **Hypothesis Matching**: Check each signal against all active hypotheses
+3. **Decision Creation**: Create shadow decisions for matching signals
+4. **Deduplication**: Only one decision per market per hypothesis
 
-4. **Can we predict before the move?**
-   - What do steamer characteristics look like 2 hours before they steam?
-   - Are there structural signals (spread widening, depth changes)?
-   - Does high score + specific pattern = imminent steam?
+### API Endpoints
 
-### Data Collection (In Place)
+```
+# Hypothesis Management
+GET  /api/hypotheses/                    # List all with stats
+GET  /api/hypotheses/compare             # Compare performance
+GET  /api/hypotheses/{name}              # Get details
+GET  /api/hypotheses/{name}/decisions    # Get decisions
+GET  /api/hypotheses/{name}/daily-pnl    # Daily P&L data
+POST /api/hypotheses/{name}/toggle       # Enable/disable
+POST /api/hypotheses/seed                # Seed defaults
+```
 
-The infrastructure is ready:
-- Full price ladder captured every 60 seconds (`market_snapshots.ladder_data`)
-- Back and lay prices with sizes at all levels
-- Total matched volume over time
-- Historical snapshots for comparison
+### Example Response
 
-### Integration Path (If Validated)
+```json
+{
+  "name": "steam_follower",
+  "display_name": "Steam Follower",
+  "enabled": true,
+  "total_decisions": 47,
+  "wins": 28,
+  "losses": 19,
+  "win_rate": 59.6,
+  "total_pnl": 87.50,
+  "avg_clv": 1.8,
+  "roi_percent": 4.6
+}
+```
 
-Only after collecting sufficient data and proving predictive value:
+### Creating Custom Hypotheses
 
-1. **Correlation analysis**: Do high-score + steamer outperform high-score alone?
-2. **If positive**: Add momentum as a scoring component or separate signal
-3. **If negative**: Keep as observational tool only, do not integrate
+Add to `app/tasks/hypothesis.py`:
 
-**Principle**: Don't add assumptions to the scoring engine. Only add validated, data-backed signals.
+```python
+{
+    "name": "my_custom_hypothesis",
+    "display_name": "My Custom Strategy",
+    "description": "Description of what this tests",
+    "enabled": True,
+    "entry_criteria": {
+        "min_score": 40,
+        "min_price_change_pct": 7.0,
+        "price_change_direction": "steaming",
+        # ... other criteria
+    },
+    "selection_logic": "momentum",
+    "decision_type": "BACK",
+}
+```
+
+Then run: `curl -X POST http://localhost:8002/api/hypotheses/seed`
+
+---
+
+## Price Momentum (Steamers/Drifters)
+
+### Now Integrated via Hypotheses
+
+Price momentum is now **actively tested** through the hypothesis system rather than being observational-only:
+
+- **steam_follower**: Tests if following early steam in thin markets is profitable
+- **strong_steam_follower**: Tests pure momentum without score validation
+- **drift_fader**: Tests contrarian fade of market overreactions
+- **under_specialist**: Tests momentum specifically in O/U markets
+
+### What We're Testing
+
+1. **Do steamers win more often?** → Compare win rates across hypotheses
+2. **Does score + momentum beat score alone?** → steam_follower vs score_based_classic
+3. **Is contrarian viable?** → drift_fader results
+4. **Are certain market types more predictable?** → under_specialist vs others
+
+### Data Captured Per Decision
+
+```python
+# Momentum data stored with each shadow decision
+price_change_30m: Decimal  # % change vs 30 mins ago
+price_change_1h: Decimal   # % change vs 1 hour ago
+price_change_2h: Decimal   # % change vs 2 hours ago
+hypothesis_name: str       # Which strategy triggered this
+```
+
+### Validation Path
+
+After 500+ decisions per hypothesis:
+
+1. Compare ROI across hypotheses
+2. Analyze CLV correlation for each
+3. Identify which strategies show consistent edge
+4. Retire unprofitable hypotheses
+5. Potentially promote winning strategies to Phase 3
 
 ---
 
 ## Implementation Checklist
 
-- [ ] Create `app/tasks/shadow_trading.py` with decision logic
-- [ ] Add shadow trading endpoints to API
-- [ ] Create Shadow Trading dashboard UI
-- [ ] Add phase status indicator to navbar
-- [ ] Implement CLV calculation and storage
-- [ ] Implement P&L settlement logic
-- [ ] Add performance aggregation task
-- [ ] Create niche performance breakdown
-- [ ] Add safety badges to all UI elements
-- [ ] Write tests for decision logic
-- [ ] Add configuration validation
-- [ ] Create admin toggle for enable/disable
+### Core Shadow Trading
+- [x] Create `app/tasks/shadow_trading.py` with decision logic
+- [x] Add shadow trading endpoints to API (`/api/shadow/*`)
+- [x] Create Shadow Trading dashboard UI (`/shadow`)
+- [x] Add phase status indicator
+- [x] Implement CLV calculation and storage
+- [x] Implement P&L settlement logic
+- [x] Add performance aggregation task
+- [x] Create niche performance breakdown
+- [x] Add safety badges to all UI elements
+
+### Hypothesis-Based System (NEW)
+- [x] Create `TradingHypothesis` model (`app/models/domain.py`)
+- [x] Create hypothesis engine (`app/services/hypothesis_engine.py`)
+- [x] Create hypothesis tasks (`app/tasks/hypothesis.py`)
+- [x] Add hypothesis API endpoints (`/api/hypotheses/*`)
+- [x] Seed default hypotheses (steam_follower, drift_fader, etc.)
+- [x] Add momentum data to shadow decisions
+- [x] Create database migration for hypothesis tables
+- [x] Add hypothesis comparison endpoint
+- [x] Track price changes (30m, 1h, 2h) per decision
+
+### Remaining
+- [ ] Write tests for hypothesis evaluation logic
+- [ ] Add hypothesis management to admin UI
+- [ ] Create hypothesis performance charts
 
 ---
 
