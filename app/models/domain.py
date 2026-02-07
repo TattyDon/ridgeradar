@@ -758,9 +758,13 @@ class ShadowDecision(Base):
     closing_lay_price: Mapped[Decimal | None] = mapped_column(
         Numeric(8, 2), nullable=True, doc="Final lay price before kickoff"
     )
+    closing_mid_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 2), nullable=True,
+        doc="Mid price at close: (closing_back + closing_lay) / 2 for CLV calculation"
+    )
     clv_percent: Mapped[Decimal | None] = mapped_column(
         Numeric(6, 4), nullable=True,
-        doc="CLV = (closing_price - entry_price) / entry_price for backs"
+        doc="CLV vs closing mid-price. Positive = better price than close (pricing skill)."
     )
 
     # Outcome (captured after settlement)
@@ -783,6 +787,14 @@ class ShadowDecision(Base):
     )
     net_pnl: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2), nullable=True, doc="P&L after all costs"
+    )
+    max_loss: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True,
+        doc="Maximum loss at risk: stake for BACK, stake*(odds-1) for LAY"
+    )
+    return_on_risk: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 4), nullable=True,
+        doc="Return on Risk = net_pnl / max_loss (normalises BACK vs LAY)"
     )
 
     # Niche classification (for aggregation)

@@ -74,10 +74,12 @@ class HypothesisComparison(BaseModel):
     win_rate: float
     total_pnl: float
     avg_clv: float
+    avg_return_on_risk: float  # Normalised: net_pnl / max_loss (makes BACK/LAY comparable)
     roi_percent: float
     sharpe_estimate: Optional[float]  # Rough estimate
     is_profitable: bool
-    verdict: str  # "PROMISING", "MARGINAL", "UNPROFITABLE", "INSUFFICIENT_DATA"
+    verdict: str  # "PROMISING", "MARGINAL", "UNPROFITABLE", "INSUFFICIENT_DATA", "WARNING_NEGATIVE_CLV"
+    multiple_testing_warning: Optional[str] = None  # Warn when >3 hypotheses compared
 
 
 class HypothesisDecision(BaseModel):
@@ -251,6 +253,7 @@ async def compare_hypotheses(
                     COUNT(*) FILTER (WHERE sd.outcome = 'LOSE') as losses,
                     COALESCE(SUM(sd.net_pnl), 0) as total_pnl,
                     AVG(sd.clv_percent) FILTER (WHERE sd.clv_percent IS NOT NULL) as avg_clv,
+                    AVG(sd.return_on_risk) FILTER (WHERE sd.return_on_risk IS NOT NULL) as avg_return_on_risk,
                     STDDEV(sd.net_pnl) FILTER (WHERE sd.outcome IN ('WIN', 'LOSE')) as pnl_stddev,
                     AVG(sd.net_pnl) FILTER (WHERE sd.outcome IN ('WIN', 'LOSE')) as avg_pnl
                 FROM trading_hypotheses h
@@ -273,6 +276,17 @@ async def compare_hypotheses(
         result = await db.execute(query, {"min_decisions": min_decisions})
         rows = result.fetchall()
 
+        # Multiple testing warning when >3 hypotheses compared
+        num_hypotheses = len(rows)
+        multiple_testing_warning = None
+        if num_hypotheses > 3:
+            corrected_alpha = round(0.05 / num_hypotheses, 3)
+            multiple_testing_warning = (
+                f"Comparing {num_hypotheses} hypotheses simultaneously. "
+                f"Selection bias risk: recommend time-split holdout validation "
+                f"and Bonferroni-corrected significance threshold (alpha = {corrected_alpha})."
+            )
+
         comparisons = []
         for row in rows:
             settled = row.wins + row.losses
@@ -280,12 +294,18 @@ async def compare_hypotheses(
             total_staked = settled * 10
             roi = float(row.total_pnl) / total_staked * 100 if total_staked > 0 else 0
             is_profitable = float(row.total_pnl) > 0
+            avg_clv_val = float(row.avg_clv or 0)
+            avg_ror = float(row.avg_return_on_risk) if row.avg_return_on_risk else 0.0
 
-            # Determine verdict
+            # Determine verdict (CLV is now a primary signal)
             if settled < 50:
                 verdict = "INSUFFICIENT_DATA"
-            elif roi > 3 and float(row.avg_clv or 0) > 0:
+            elif settled >= 100 and avg_clv_val < -1.0:
+                verdict = "WARNING_NEGATIVE_CLV"
+            elif roi > 3 and avg_clv_val > 0:
                 verdict = "PROMISING"
+            elif roi > 0 and avg_clv_val > 0:
+                verdict = "MARGINAL"
             elif roi > 0:
                 verdict = "MARGINAL"
             else:
@@ -299,11 +319,13 @@ async def compare_hypotheses(
                 losses=row.losses,
                 win_rate=round(win_rate, 1),
                 total_pnl=float(row.total_pnl),
-                avg_clv=float(row.avg_clv) if row.avg_clv else 0,
+                avg_clv=avg_clv_val,
+                avg_return_on_risk=round(avg_ror, 4),
                 roi_percent=round(roi, 2),
                 sharpe_estimate=round(float(row.sharpe_estimate), 2) if row.sharpe_estimate else None,
                 is_profitable=is_profitable,
                 verdict=verdict,
+                multiple_testing_warning=multiple_testing_warning,
             ))
 
         return comparisons

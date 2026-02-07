@@ -397,31 +397,41 @@ Scale increment: 50% stake increase, reassess after 3 months
 | Discount 2 | 3.0% | £5,000+ monthly volume |
 | Discount 3 | 2.0% | £25,000+ monthly volume |
 
-**Planning assumption:** 2% commission (discounted rate)
+**Planning assumption for Phase 2 evaluation:** 5% commission (standard rate, conservative)
+
+> **Note:** Using the standard 5% rate ensures robust shadow trading evaluation. In production (Phase 3+), actual commission may be 2–4% with volume-based discounts, which would improve ROI. All documents and code use 5% consistently for Phase 2.
 
 ### 6.2 Full Cost Model
 
 | Cost Component | Estimate | Notes |
 |----------------|----------|-------|
-| Commission | 2.0% of profit | Betfair's take on winning bets (discounted) |
+| Commission | 5.0% of net profit | Betfair's take on winning bets (standard rate) |
 | Spread cost | 1.0-2.0% | Half the bid-ask spread |
 | Slippage | 0.3-0.5% | Price movement during execution |
 | Partial fills | 0.2-0.5% | Unfilled portion opportunity cost |
-| **Total effective cost** | **3.5-5.0%** | Must beat this to profit |
+| **Total effective cost** | **6.5-8.0%** | Must beat this to profit |
 
 ### 6.3 Breakeven Calculation
 
-For a bet at odds of 2.00 (implied 50%):
+**Note:** Commission is charged only on net market winnings, so the breakeven probability shifts differently at different odds levels. The precise formula is: `p_breakeven = 1 / (1 + (odds - 1) * (1 - commission_rate))`.
+
+For a bet at odds of 2.00 (implied 50%), with 5% commission:
 
 ```
-Gross edge needed = total_cost / (1 - commission_on_loss)
-                  = 4.0% / 1.0
-                  = 4.0%
+Commission-only breakeven:
+  p_breakeven = 1 / (1 + 1 * 0.95) = 1/1.95 ~ 51.3%
+  Commission edge requirement: +1.3 probability points
 
-Therefore: Need to identify 4%+ mispricing to break even.
+With spread + slippage + fill risk:
+  Spread cost:    ~1.5%
+  Slippage:       ~0.4%
+  Fill risk:      ~0.3%
+  Total additional: ~2.2%
+
+Total cost hurdle (approximate): ~3.5% of stake
 ```
 
-**Implication:** With 2% commission, the hurdle is lower but still requires meaningful structural edge.
+**Implication:** Only trade when exploitability score suggests meaningful structural edge. The exact cost threshold varies by odds level — a flat "X% mispricing" rule miscalibrates at extreme odds.
 
 ---
 
@@ -433,7 +443,7 @@ Only edges that survive **all** of the following are considered valid:
 
 | Cost/Risk | Description |
 |-----------|-------------|
-| Commission | 2% of net profit (discounted rate) |
+| Commission | 5% of net profit (standard rate for Phase 2) |
 | Spread | Entry at worse price than mid |
 | Slippage | Price moves against during execution |
 | Fill risk | Order may not fully execute |
@@ -476,18 +486,18 @@ Estimated structural edge (from regime analysis): 4.5%
 Cost breakdown:
   Spread cost:    1.75% (half of 3.5%)
   Slippage:       0.4%
-  Commission:     2% × expected_profit ≈ 0.4%
+  Commission:     5% × expected_profit ≈ 0.95%
   Fill risk:      0.3%
-  Total costs:    2.85%
+  Total costs:    3.40%
 
 Safety margin: 1.5%
 
-Capturable edge = 4.5% - 2.85% - 1.5% = +0.15%
+Capturable edge = 4.5% - 3.40% - 1.5% = -0.40%
 
-Decision: MARGINAL (capturable edge barely positive, requires judgment)
+Decision: NO TRADE (capturable edge negative after costs)
 ```
 
-With a 72 exploitability score and 2% commission, this example is marginal. Lower commission makes more opportunities viable, but discipline remains key — marginal edges should be approached cautiously.
+Even with a 72 exploitability score, the edge doesn't survive costs in this example. **This is expected** — most markets should result in no action.
 
 ---
 
@@ -508,15 +518,19 @@ With a 72 exploitability score and 2% commission, this example is marginal. Lowe
 **Flat staking with Kelly-informed caps.**
 
 ```python
-def calculate_stake(bankroll, edge, odds, kelly_fraction=0.25):
+def calculate_stake(bankroll, probability_edge, odds, kelly_fraction=0.25):
     """
     Conservative fractional Kelly staking.
 
     kelly_fraction=0.25 means we bet 25% of full Kelly,
     which significantly reduces variance at cost of some EV.
+
+    IMPORTANT: probability_edge is Δp (absolute probability difference),
+    NOT the estimated_edge percentage from the exploitability score.
+    See Section 8.3 for the distinction.
     """
     # Full Kelly
-    p = 1 / odds + edge  # estimated true probability
+    p = 1 / odds + probability_edge  # estimated true probability
     q = 1 - p
     b = odds - 1
     full_kelly = (b * p - q) / b
@@ -527,6 +541,18 @@ def calculate_stake(bankroll, edge, odds, kelly_fraction=0.25):
 
     return bankroll * stake_fraction
 ```
+
+### 8.3 Edge Definition Clarification
+
+**CRITICAL DISTINCTION** — there are two different "edge" concepts in this strategy:
+
+**1. estimated_edge (Section 7.2 — Capturable Edge Formula)**
+This is a heuristic cost-adjusted margin derived from the exploitability score. It represents a structural market inefficiency signal as a percentage. It is used for the go/no-go trade decision. It is NOT directly additive to probability and must NOT be fed into Kelly.
+
+**2. probability_edge / Δp (Kelly Criterion above)**
+This is the absolute probability difference: `estimated_true_probability - market_implied_probability`. It is the direct input to Kelly staking. For example, if the market implies 50% and you estimate 53%, then Δp = 0.03.
+
+**In Phase 2:** Kelly staking is DISABLED (`use_kelly=False` in config). The probability_edge definition will be refined when true probability estimation is implemented in Phase 3+. Until then, flat staking is used.
 
 ### 8.3 Drawdown Limits
 
@@ -696,6 +722,29 @@ For any parameter change:
 - [ ] [Action items for next week]
 ```
 
+### 10.5 Multiple Testing & Hypothesis Selection
+
+When Phase 2 concludes with multiple hypotheses tested in parallel, selection bias is a critical risk. Even with no edge, one hypothesis will look profitable by chance if enough are tested.
+
+**Mitigation (required):**
+
+1. **Time-split holdout** — Divide shadow data: 60% in-sample (discovery), 40% out-of-sample (validation). Pick hypotheses based on in-sample, confirm on out-of-sample. Only hypotheses with consistent performance across both periods qualify for Phase 3.
+
+2. **Bonferroni correction** — For N concurrent hypotheses, adjust significance threshold to α / N. Example: 5 hypotheses tested simultaneously requires α = 0.01 per hypothesis instead of α = 0.05.
+
+3. **Bias towards understatement** — Present shadow ROI conservatively. Assume closing prices are rational. Include full cost model with no discounts.
+
+**Decision rule for Phase 3 promotion:**
+
+```
+Proceed with hypothesis H to Phase 3 ONLY if:
+  1. Out-of-sample ROI > 2% (after costs at 5% commission)
+  2. Average CLV > 0% (pricing skill signal)
+  3. Consistent across time-split (no data-snooping bias)
+  4. Win rate stable across time periods
+  5. Minimum 200 out-of-sample decisions
+```
+
 ---
 
 ## 11. Performance Evaluation
@@ -705,17 +754,18 @@ For any parameter change:
 | Metric | Definition | Target |
 |--------|------------|--------|
 | ROI (after costs) | Net profit / total staked | >3% |
-| Yield | Net profit / number of bets | >1% |
+| CLV (Closing Line Value) | Entry price vs closing mid-price | >0% average (pricing skill signal) |
+| Return on Risk (RoR) | Net P&L / max loss (normalised) | >0% |
 | Max drawdown | Largest peak-to-trough decline | <15% |
 | Sharpe ratio | Risk-adjusted return | >1.0 |
-| Win rate | Winning bets / total bets | 48-55% |
 | Regime stability | Score-to-outcome correlation | >0.3 |
 
 ### 11.2 Secondary Metrics
 
 | Metric | Definition | Purpose |
 |--------|------------|---------|
-| CLV (Closing Line Value) | Entry price vs closing price | Execution quality |
+| Win rate | Winning bets / total bets | Outcome hit rate |
+| Yield | Net profit / number of bets | Per-bet efficiency |
 | Fill rate | Executed / attempted volume | Liquidity access |
 | Avg time to fill | Order placement to execution | Market impact |
 | Hypothesis concentration | % volume in top 3 hypotheses | Diversification |
@@ -723,13 +773,16 @@ For any parameter change:
 ### 11.3 Metric Hierarchy
 
 ```
-Primary goal:   Positive ROI after costs
+Primary goal:   Positive ROI after costs AND positive average CLV
 Constraint 1:   Drawdown < 15%
 Constraint 2:   Regime stability maintained
-Secondary:      CLV, fill rates, efficiency
+Constraint 3:   CLV consistently positive after 100+ decisions
+Secondary:      Win rate, fill rates, efficiency
 ```
 
-**CLV is secondary.** A strategy can have poor CLV but positive ROI if it trades in inefficient markets where closing line is also wrong.
+**CLV is a primary metric.** For an exchange-only programme that claims to find structural mispricing, CLV is the fastest and lowest-variance signal of genuine pricing skill. You don't need to wait for 500 match outcomes to know if you're consistently getting better prices than close.
+
+Consistently negative CLV after 100+ decisions is a WARNING signal — it means the strategy lacks pricing skill, even if ROI is temporarily positive due to lucky outcome variance. CLV should be computed against the closing mid-price (average of closing back and lay) rather than closing back or lay separately, to avoid noise from closing spreads in thin markets.
 
 ---
 
@@ -855,11 +908,14 @@ The journey is the data. The destination is the truth.
 
 | Term | Definition |
 |------|------------|
-| Edge | Expected profit per unit staked |
+| Estimated Edge | Heuristic cost-adjusted margin from exploitability score. A percentage signal of structural inefficiency. NOT directly additive to probability. |
+| Probability Edge (Δp) | Absolute probability difference: estimated_true_probability - market_implied_probability. Direct input to Kelly staking. |
+| Capturable Edge | Estimated edge minus all costs and safety margin. Must be positive for trade consideration. |
+| Return on Risk (RoR) | Net P&L / max loss. Normalised metric that makes BACK and LAY comparable. |
+| CLV | Closing Line Value — difference between entry price and closing mid-price. Primary metric for pricing skill. |
 | Regime | A stable pattern of market behaviour |
 | Hypothesis | A specific trading strategy being tested with defined entry criteria |
 | Niche | A specific combination of competition/market/time with exploitable characteristics |
-| CLV | Closing Line Value — difference between entry price and closing price |
 | Exploitability Score | RidgeRadar metric combining spread, volatility, depth, and volume |
 | Shadow Mode | Recording hypothetical decisions without placing real bets |
 | Drawdown | Decline from peak bankroll to current value |

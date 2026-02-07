@@ -109,7 +109,7 @@ class StakeConfig:
     max_stake_per_market: Decimal = Decimal("50.00")
     max_exposure_per_event: Decimal = Decimal("100.00")
     max_daily_exposure: Decimal = Decimal("500.00")
-    commission_rate: Decimal = Decimal("0.02")  # 2% Betfair commission (discounted rate)
+    commission_rate: Decimal = Decimal("0.05")  # 5% Betfair commission (standard rate for Phase 2 evaluation)
 
 
 @dataclass

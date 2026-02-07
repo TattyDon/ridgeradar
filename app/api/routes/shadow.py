@@ -63,10 +63,12 @@ class ShadowPerformance(BaseModel):
     gross_pnl: float
     total_commission: float
     net_pnl: float
+    avg_return_on_risk: float  # Normalised: net_pnl / max_loss
 
     avg_stake: float
     avg_clv_percent: float
     positive_clv_rate: float
+    clv_signal: str  # "POSITIVE", "NEUTRAL", or "WARNING" based on avg CLV
 
     best_niche: Optional[str]
     worst_niche: Optional[str]
@@ -209,6 +211,7 @@ async def get_performance(db: AsyncSession = Depends(get_db)):
                     COALESCE(SUM(gross_pnl), 0) AS gross_pnl,
                     COALESCE(SUM(commission), 0) AS total_commission,
                     COALESCE(SUM(net_pnl), 0) AS net_pnl,
+                    AVG(return_on_risk) FILTER (WHERE return_on_risk IS NOT NULL) AS avg_return_on_risk,
                     AVG(theoretical_stake) AS avg_stake,
                     AVG(clv_percent) FILTER (WHERE clv_percent IS NOT NULL) AS avg_clv,
                     COUNT(*) FILTER (WHERE clv_percent > 0) AS positive_clv_count,
@@ -253,6 +256,15 @@ async def get_performance(db: AsyncSession = Depends(get_db)):
         positive_clv = row.positive_clv_count or 0
         positive_clv_rate = (positive_clv / clv_total * 100) if clv_total > 0 else 0.0
 
+        # CLV signal: primary indicator of pricing skill
+        avg_clv_val = float(row.avg_clv or 0)
+        if avg_clv_val > 0:
+            clv_signal = "POSITIVE"
+        elif avg_clv_val >= -1.0:
+            clv_signal = "NEUTRAL"
+        else:
+            clv_signal = "WARNING"
+
         return ShadowPerformance(
             mode="PAPER",
             real_money_at_risk=False,
@@ -266,9 +278,11 @@ async def get_performance(db: AsyncSession = Depends(get_db)):
             gross_pnl=float(row.gross_pnl or 0),
             total_commission=float(row.total_commission or 0),
             net_pnl=float(row.net_pnl or 0),
+            avg_return_on_risk=round(float(row.avg_return_on_risk or 0), 4),
             avg_stake=float(row.avg_stake or 10),
-            avg_clv_percent=float(row.avg_clv or 0),
+            avg_clv_percent=avg_clv_val,
             positive_clv_rate=round(positive_clv_rate, 1),
+            clv_signal=clv_signal,
             best_niche=row.best_niche,
             worst_niche=row.worst_niche,
             disclaimer="PAPER TRADING: All figures are theoretical. No real money at risk.",

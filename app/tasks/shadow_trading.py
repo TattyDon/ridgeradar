@@ -504,17 +504,24 @@ async def capture_closing_prices(db: AsyncSession) -> dict[str, Any]:
                             closing_back = Decimal(str(back_prices[0].get("price", 0)))
                             closing_lay = Decimal(str(lay_prices[0].get("price", 0)))
 
+                            # Compute closing mid-price for CLV calculation
+                            closing_mid = (closing_back + closing_lay) / 2
+
                             # Get the decision and update
                             decision = await db.get(ShadowDecision, row.decision_id)
                             if decision:
                                 decision.closing_back_price = closing_back
                                 decision.closing_lay_price = closing_lay
+                                decision.closing_mid_price = closing_mid
 
-                                # Calculate CLV
-                                if decision.decision_type == "BACK" and closing_back > 0:
-                                    clv = ((decision.entry_back_price - closing_back) / closing_back) * 100
-                                elif decision.decision_type == "LAY" and closing_lay > 0:
-                                    clv = ((closing_lay - decision.entry_lay_price) / closing_lay) * 100
+                                # Calculate CLV vs closing mid-price
+                                # Positive CLV = better price than close = pricing skill
+                                if decision.decision_type == "BACK" and closing_mid > 0:
+                                    # For BACK: higher entry odds than mid = got better price
+                                    clv = ((decision.entry_back_price - closing_mid) / closing_mid) * 100
+                                elif decision.decision_type == "LAY" and closing_mid > 0:
+                                    # For LAY: lower entry odds than mid = got better price
+                                    clv = ((closing_mid - decision.entry_lay_price) / decision.entry_lay_price) * 100
                                 else:
                                     clv = Decimal("0")
 
@@ -524,6 +531,7 @@ async def capture_closing_prices(db: AsyncSession) -> dict[str, Any]:
                                 logger.debug(
                                     "closing_price_captured",
                                     decision_id=row.decision_id,
+                                    closing_mid=float(closing_mid),
                                     clv_percent=float(clv),
                                 )
                         break
@@ -556,18 +564,30 @@ def calculate_pnl(
     entry_price: Decimal,
     outcome: str,
     decision_type: str,
-    commission_rate: Decimal = Decimal("0.05"),
+    commission_rate: Decimal = None,
 ) -> dict[str, Decimal]:
-    """Calculate theoretical P&L for a shadow decision."""
+    """Calculate theoretical P&L for a shadow decision.
+
+    Args:
+        commission_rate: If None, uses the single source of truth from
+            ShadowTradingConfig.stake.commission_rate. Pass explicitly
+            only for testing or what-if analysis.
+    """
+    if commission_rate is None:
+        commission_rate = get_shadow_config().stake.commission_rate
+
     if outcome == "VOID":
         return {
             "gross_pnl": Decimal("0"),
             "commission": Decimal("0"),
             "spread_cost": Decimal("0"),
             "net_pnl": Decimal("0"),
+            "max_loss": Decimal("0"),
+            "return_on_risk": Decimal("0"),
         }
 
     if decision_type == "BACK":
+        max_loss = stake
         if outcome == "WIN":
             gross_pnl = stake * (entry_price - 1)
             commission = gross_pnl * commission_rate
@@ -577,6 +597,7 @@ def calculate_pnl(
             commission = Decimal("0")
             net_pnl = gross_pnl
     else:  # LAY
+        max_loss = stake * (entry_price - 1)
         if outcome == "WIN":  # Selection lost, lay wins
             gross_pnl = stake
             commission = gross_pnl * commission_rate
@@ -586,11 +607,16 @@ def calculate_pnl(
             commission = Decimal("0")
             net_pnl = gross_pnl
 
+    # Return on Risk: normalised metric that makes BACK and LAY comparable
+    return_on_risk = (net_pnl / max_loss) if max_loss != 0 else Decimal("0")
+
     return {
         "gross_pnl": gross_pnl,
         "commission": commission,
         "spread_cost": Decimal("0"),  # Could estimate from entry spread
         "net_pnl": net_pnl,
+        "max_loss": max_loss,
+        "return_on_risk": return_on_risk,
     }
 
 
@@ -682,6 +708,8 @@ async def settle_shadow_decisions(db: AsyncSession) -> dict[str, Any]:
                 decision.commission = pnl["commission"]
                 decision.spread_cost = pnl["spread_cost"]
                 decision.net_pnl = pnl["net_pnl"]
+                decision.max_loss = pnl["max_loss"]
+                decision.return_on_risk = pnl["return_on_risk"]
 
                 if outcome == "WIN":
                     stats["settled_win"] += 1

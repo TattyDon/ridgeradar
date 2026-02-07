@@ -71,9 +71,9 @@ ENTRY_CRITERIA = {
     # Score threshold - only trade high-scoring markets
     "min_score": 30,
 
-    # Time window - only trade close to kickoff (more reliable prices)
-    "min_minutes_to_start": 5,
-    "max_minutes_to_start": 60,
+    # Time window - strategy optimal window for detecting sharp money movement
+    "min_minutes_to_start": 360,   # 6 hours before kickoff
+    "max_minutes_to_start": 1440,  # 24 hours before kickoff
 
     # Liquidity requirements - must be tradeable
     "min_total_matched": 5000,  # £5k+ already matched
@@ -111,9 +111,10 @@ MARKET_RULES = {
     },
 
     "CORRECT_SCORE": {
-        # Skip - too illiquid for reliable signals
-        "strategy": "skip",
-        "description": "Not traded - insufficient liquidity",
+        # Enabled - tested via hypothesis engine with specific criteria
+        "strategy": "back_best_value",
+        "description": "Tested via hypothesis engine with specific criteria",
+        "runner_selection": "highest_score_contribution",
     },
 
     # Default for unknown market types
@@ -221,7 +222,7 @@ def calculate_pnl(
     entry_price: Decimal,
     outcome: str,
     bet_type: str,
-    commission_rate: Decimal = Decimal("0.05"),  # 5% Betfair commission
+    commission_rate: Decimal = Decimal("0.05"),  # 5% Betfair commission (standard rate for Phase 2 evaluation)
 ) -> dict:
     """Calculate theoretical P&L for a shadow decision."""
 
@@ -433,8 +434,8 @@ shadow_trading:
 
   # Entry criteria
   min_score_threshold: 30
-  min_minutes_to_start: 5
-  max_minutes_to_start: 60
+  min_minutes_to_start: 360    # 6 hours before kickoff
+  max_minutes_to_start: 1440   # 24 hours before kickoff
   min_liquidity: 5000
   max_spread_percent: 5.0
 
@@ -444,7 +445,7 @@ shadow_trading:
   max_daily_exposure: 500.00
 
   # Commission estimate
-  commission_rate: 0.05
+  commission_rate: 0.05  # Standard rate for Phase 2 evaluation (may reduce to 2-4% in Phase 3 with volume)
 
   # Safety
   live_trading_enabled: false  # NEVER auto-set to true
@@ -462,8 +463,9 @@ shadow_trading:
       enabled: true
       strategy: "back_no"
     CORRECT_SCORE:
-      enabled: false
-      strategy: "skip"
+      enabled: true
+      strategy: "back_best_value"
+      description: "Tested via hypothesis engine with specific criteria"
 ```
 
 ---
@@ -505,6 +507,40 @@ Based on performance, each hypothesis receives a verdict:
 | **INSUFFICIENT_DATA** | < 50 settled decisions |
 
 Only **PROMISING** hypotheses should be considered for Phase 3.
+
+---
+
+## Time-Split Holdout Protocol (Multiple Testing Correction)
+
+When comparing multiple hypotheses running in parallel, selection bias is a critical risk. Even with no real edge, one hypothesis will appear profitable by chance when many are tested.
+
+### Required Holdout Strategy
+
+1. **Define a validation split:**
+   - In-sample period: First 60% of collected decisions (discovery phase)
+   - Out-of-sample period: Last 40% of collected decisions (proof phase)
+   - Report performance on BOTH periods separately
+
+2. **Reporting requirement:**
+   - Compare hypotheses on in-sample first (discovery)
+   - Validate on out-of-sample (proof)
+   - Only hypotheses with consistent performance across both periods qualify for Phase 3
+
+3. **Multiple comparison warning:**
+   - System warns when comparing >3 concurrent hypotheses
+   - Recommended Bonferroni correction: target significance = 0.05 / num_hypotheses
+   - For 5 hypotheses: use significance threshold 0.01 per hypothesis
+
+### CLV as Primary Early Signal
+
+CLV is the **primary** Phase 2 evaluation metric because:
+- Available at scale without waiting for match outcomes
+- Isolates pricing skill from outcome variance
+- Directly measures whether the strategy catches real mispricings
+
+**CLV is computed against closing mid-price** (average of closing back and lay) rather than closing back or lay separately, to reduce noise from closing spreads in thin markets.
+
+**Early warning rule:** If average CLV < -1% after 100+ settled decisions, flag the hypothesis as WARNING regardless of ROI.
 
 ---
 
