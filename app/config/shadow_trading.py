@@ -48,7 +48,7 @@ class ActivationThresholds:
     min_closing_data: int = 500
     min_results: int = 200
     min_high_score_markets: int = 50
-    min_days_collecting: int = 3
+    min_days_collecting: int = 2
 
     def check_ready(
         self,
