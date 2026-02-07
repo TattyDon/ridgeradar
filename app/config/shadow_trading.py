@@ -86,10 +86,14 @@ class ActivationThresholds:
 
 @dataclass
 class EntryCriteria:
-    """Criteria for entering a shadow trade."""
+    """Criteria for entering a shadow trade.
+
+    Time window: Strategy document specifies 6-24 hours before kickoff
+    as the optimal window for detecting sharp money movement.
+    """
     min_score: Decimal = Decimal("30")
-    min_minutes_to_start: int = 5
-    max_minutes_to_start: int = 60
+    min_minutes_to_start: int = 360   # 6 hours - strategy optimal start
+    max_minutes_to_start: int = 1440  # 24 hours - strategy optimal end
     min_total_matched: Decimal = Decimal("5000")
     max_spread_percent: Decimal = Decimal("5.0")
     market_status: str = "OPEN"
@@ -105,7 +109,7 @@ class StakeConfig:
     max_stake_per_market: Decimal = Decimal("50.00")
     max_exposure_per_event: Decimal = Decimal("100.00")
     max_daily_exposure: Decimal = Decimal("500.00")
-    commission_rate: Decimal = Decimal("0.05")  # 5% Betfair commission
+    commission_rate: Decimal = Decimal("0.02")  # 2% Betfair commission (discounted rate)
 
 
 @dataclass
@@ -176,9 +180,9 @@ class ShadowTradingConfig:
             description="Skipped - too many selections, complex",
         ),
         "CORRECT_SCORE": MarketTypeRule(
-            enabled=False,
-            strategy=DecisionStrategy.SKIP,
-            description="Skipped - insufficient liquidity",
+            enabled=True,
+            strategy=DecisionStrategy.BACK_BEST_VALUE,
+            description="Tested via hypothesis engine (correct_score_value) with specific criteria",
         ),
         "ASIAN_HANDICAP": MarketTypeRule(
             enabled=False,
