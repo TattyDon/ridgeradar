@@ -135,6 +135,7 @@ class HypothesisEngine:
                   AND m.status = 'OPEN'
                   AND (m.in_play = false OR m.in_play IS NULL)
                   AND c.enabled = true
+                  AND m.market_type NOT IN ('ASIAN_HANDICAP', 'HANDICAP')  -- Exclude handicap (extreme swings)
                 ORDER BY ms.market_id, ms.captured_at DESC
             ),
             historical_30m AS (
@@ -283,6 +284,10 @@ class HypothesisEngine:
                 if back_price <= 0:
                     continue
 
+                # Filter out extreme prices (not useful for trading)
+                if back_price < Decimal("1.10") or back_price > Decimal("50"):
+                    continue
+
                 # Calculate spread
                 spread_pct = ((lay_price - back_price) / back_price) * 100
 
@@ -294,6 +299,10 @@ class HypothesisEngine:
                 # Check if this runner has significant movement
                 primary_change = change_2h or change_1h or change_30m
                 if primary_change is None or abs(float(primary_change)) < min_change:
+                    continue
+
+                # Filter out extreme changes (>100% is data noise)
+                if abs(float(primary_change)) > 100:
                     continue
 
                 signals.append(MomentumSignal(

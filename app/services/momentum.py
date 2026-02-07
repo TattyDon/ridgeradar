@@ -131,6 +131,7 @@ class MomentumAnalyzer:
                 WHERE e.scheduled_start > :now
                   AND e.scheduled_start < :cutoff
                   AND m.status = 'OPEN'
+                  AND m.market_type NOT IN ('ASIAN_HANDICAP', 'HANDICAP')  -- Exclude handicap markets (extreme price swings)
                 ORDER BY ms.market_id, ms.captured_at DESC
             ),
             historical_prices AS (
@@ -215,6 +216,10 @@ class MomentumAnalyzer:
             runners = self._extract_runners_with_momentum(row, runner_names)
 
             for runner in runners:
+                # Filter out extreme prices (not useful for momentum tracking)
+                if runner.current_back < 1.10 or runner.current_back > 50:
+                    continue
+
                 # Determine primary change (use longest available timeframe)
                 primary_change = (
                     runner.change_4h or runner.change_2h or
@@ -225,6 +230,10 @@ class MomentumAnalyzer:
                     continue
 
                 abs_change = abs(primary_change)
+
+                # Filter out extreme changes (>100% is almost certainly data noise)
+                if abs_change > 1.0:  # 100%
+                    continue
 
                 if abs_change < min_change:
                     continue
