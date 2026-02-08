@@ -634,7 +634,8 @@ async def settle_shadow_decisions(db: AsyncSession) -> dict[str, Any]:
     }
 
     try:
-        # Find pending decisions with markets that may have settled
+        # Find pending decisions with markets that have settlement data
+        # Use market_closing_data.result which is populated by capture_results_task
         query = text("""
             SELECT
                 sd.id AS decision_id,
@@ -645,11 +646,13 @@ async def settle_shadow_decisions(db: AsyncSession) -> dict[str, Any]:
                 sd.entry_lay_price,
                 sd.theoretical_stake,
                 r.betfair_id AS runner_betfair_id,
-                r.status AS runner_status
+                mcd.result AS market_result,
+                mcd.settled_at AS market_settled_at
             FROM shadow_decisions sd
             JOIN runners r ON sd.runner_id = r.id
             JOIN markets m ON sd.market_id = m.id
             JOIN events e ON m.event_id = e.id
+            LEFT JOIN market_closing_data mcd ON sd.market_id = mcd.market_id
             WHERE
                 sd.outcome = 'PENDING'
                 AND e.scheduled_start < :cutoff
@@ -669,8 +672,28 @@ async def settle_shadow_decisions(db: AsyncSession) -> dict[str, Any]:
                 if not decision:
                     continue
 
-                # Check runner status
-                runner_status = row.runner_status
+                # Check if we have settlement data from market_closing_data
+                if not row.market_result or not row.market_settled_at:
+                    stats["not_yet_settled"] += 1
+                    continue
+
+                # Find this runner's status in the result data
+                runner_status = None
+                market_result = row.market_result
+
+                # Handle voided markets
+                if market_result.get("void"):
+                    runner_status = "REMOVED"
+                else:
+                    # Look for this runner in the results
+                    for runner_result in market_result.get("runners", []):
+                        if runner_result.get("runner_id") == row.runner_betfair_id:
+                            runner_status = runner_result.get("status")
+                            break
+
+                if not runner_status:
+                    stats["not_yet_settled"] += 1
+                    continue
 
                 if runner_status == "WINNER":
                     if row.decision_type == "BACK":
