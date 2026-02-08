@@ -227,6 +227,7 @@ async def capture_results(db: AsyncSession, betfair: BetfairClient) -> dict[str,
     stats = {
         "markets_checked": 0,
         "results_captured": 0,
+        "voided_markets": 0,
         "not_settled": 0,
         "api_errors": 0,
         "errors": 0,
@@ -234,8 +235,12 @@ async def capture_results(db: AsyncSession, betfair: BetfairClient) -> dict[str,
 
     try:
         # Find markets with closing data but no settlement
-        # Only check markets where event started at least 2 hours ago (likely settled)
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=2)
+        # Check markets where event started between 2-48 hours ago
+        # - Minimum 2 hours: give time for event to finish and settle
+        # - Maximum 48 hours: Betfair removes runner data after ~48h
+        now = datetime.now(timezone.utc)
+        min_cutoff = now - timedelta(hours=48)  # Don't check markets older than 48h
+        max_cutoff = now - timedelta(hours=2)   # Must be at least 2h old
 
         unsettled_query = (
             select(MarketClosingData, Market, Event)
@@ -245,9 +250,11 @@ async def capture_results(db: AsyncSession, betfair: BetfairClient) -> dict[str,
                 and_(
                     MarketClosingData.settled_at.is_(None),
                     MarketClosingData.closing_odds.isnot(None),
-                    Event.scheduled_start < cutoff_time,  # Event started 2+ hours ago
+                    Event.scheduled_start > min_cutoff,   # Not older than 48h
+                    Event.scheduled_start < max_cutoff,   # At least 2h old
                 )
             )
+            .order_by(Event.scheduled_start.desc())  # Check newest first
             .limit(100)  # Process in batches
         )
 
@@ -334,11 +341,23 @@ async def capture_results(db: AsyncSession, betfair: BetfairClient) -> dict[str,
                             winner_found=winner_id is not None,
                         )
 
+                    # Check if all runners are REMOVED (voided market or data expired)
+                    all_removed = all(r["status"] == "REMOVED" for r in runner_statuses)
+
                     if winner_id:
                         market_results[book.market_id] = {
                             "winner_runner_id": winner_id,
                             "winner_name": winner_name,
                             "runners": runner_statuses,
+                            "void": False,
+                        }
+                    elif all_removed:
+                        # Market was voided or data expired - mark as settled with no winner
+                        market_results[book.market_id] = {
+                            "winner_runner_id": None,
+                            "winner_name": None,
+                            "runners": runner_statuses,
+                            "void": True,
                         }
 
             except Exception as e:
@@ -358,13 +377,20 @@ async def capture_results(db: AsyncSession, betfair: BetfairClient) -> dict[str,
                 if result_data:
                     closing_data.result = result_data
                     closing_data.settled_at = datetime.now(timezone.utc)
-                    stats["results_captured"] += 1
 
-                    logger.debug(
-                        "result_captured",
-                        market_id=market.id,
-                        winner=result_data["winner_name"],
-                    )
+                    if result_data.get("void"):
+                        stats["voided_markets"] += 1
+                        logger.debug(
+                            "market_voided",
+                            market_id=market.id,
+                        )
+                    else:
+                        stats["results_captured"] += 1
+                        logger.debug(
+                            "result_captured",
+                            market_id=market.id,
+                            winner=result_data["winner_name"],
+                        )
                 else:
                     stats["not_settled"] += 1
 
