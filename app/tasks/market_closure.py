@@ -325,6 +325,15 @@ async def capture_results(db: AsyncSession, betfair: BetfairClient) -> dict[str,
                             winner_id = runner.selection_id
                             winner_name = runner_name
 
+                    # Log runner statuses for first closed market to debug
+                    if i == 0 and book.status == "CLOSED":
+                        logger.info(
+                            "betfair_runner_statuses",
+                            market_id=book.market_id,
+                            runner_statuses=[r["status"] for r in runner_statuses],
+                            winner_found=winner_id is not None,
+                        )
+
                     if winner_id:
                         market_results[book.market_id] = {
                             "winner_runner_id": winner_id,
