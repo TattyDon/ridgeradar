@@ -540,7 +540,7 @@
             }
 
             let html = '<table class="table table-sm table-hover mb-0"><thead><tr>' +
-                '<th>Time</th><th>Strategy</th><th>Competition</th><th>Market</th><th>Selection</th><th>Score</th>' +
+                '<th>Time</th><th>Strategy</th><th>Competition</th><th>Fixture</th><th>Market</th><th>Selection</th><th>Score</th>' +
                 '<th>Entry</th><th>CLV</th><th>Outcome</th><th>P&L</th></tr></thead><tbody>';
 
             for (const row of data) {
@@ -572,6 +572,7 @@
                         <td><small>${date}<br>${time}</small></td>
                         <td>${strategyHtml}</td>
                         <td><small>${row.competition}</small></td>
+                        <td><small>${row.event}</small></td>
                         <td><small>${row.market_type}</small></td>
                         <td><strong>${row.decision_type}</strong> ${row.runner}</td>
                         <td><span class="badge bg-primary">${row.trigger_score.toFixed(1)}</span></td>
