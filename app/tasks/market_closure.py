@@ -291,6 +291,16 @@ async def capture_results(db: AsyncSession, betfair: BetfairClient) -> dict[str,
             try:
                 books = await betfair.list_market_book(batch_ids, price_depth=1)
 
+                # Log what we got back for debugging
+                if i == 0:  # Only log first batch to avoid spam
+                    statuses = {book.market_id: book.status for book in books}
+                    logger.info(
+                        "betfair_market_statuses",
+                        requested=len(batch_ids),
+                        returned=len(books),
+                        statuses=statuses,
+                    )
+
                 for book in books:
                     # Check if market is CLOSED (settled)
                     if book.status != "CLOSED":
