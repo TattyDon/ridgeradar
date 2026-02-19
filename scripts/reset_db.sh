@@ -43,12 +43,16 @@ until docker compose exec db pg_isready -U ridgeradar -d ridgeradar &>/dev/null;
 done
 echo -e "${GREEN}✓ PostgreSQL is ready${NC}"
 
-# 3. Drop all tables by downgrading alembic to base
-echo "Dropping all tables (alembic downgrade base)..."
-docker compose run --rm app alembic downgrade base
+# 3. Drop all tables and alembic version tracking via SQL
+echo "Dropping all tables..."
+docker compose exec db psql -U ridgeradar -d ridgeradar -c "
+    DROP SCHEMA public CASCADE;
+    CREATE SCHEMA public;
+    GRANT ALL ON SCHEMA public TO ridgeradar;
+"
 echo -e "${GREEN}✓ All tables dropped${NC}"
 
-# 4. Re-run all migrations
+# 4. Re-run all migrations from scratch
 echo "Re-creating tables (alembic upgrade head)..."
 docker compose run --rm app alembic upgrade head
 echo -e "${GREEN}✓ Migrations applied - empty tables ready${NC}"
