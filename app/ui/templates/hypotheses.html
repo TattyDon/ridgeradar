@@ -300,8 +300,8 @@
         loadHypotheses();
         setupFormHandlers();
 
-        // Auto-refresh every 60 seconds
-        setInterval(loadHypotheses, 60000);
+        // Auto-refresh every 60 seconds (respects kill switch)
+        setInterval(() => { if (window.pollingEnabled) loadHypotheses(); }, 60000);
     });
 
     function setupFormHandlers() {

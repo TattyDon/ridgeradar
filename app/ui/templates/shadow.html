@@ -206,8 +206,9 @@
         document.getElementById('outcome-filter').addEventListener('change', loadDecisions);
         document.getElementById('strategy-filter').addEventListener('change', loadDecisions);
 
-        // Auto-refresh every 60 seconds
+        // Auto-refresh every 60 seconds (respects kill switch)
         setInterval(() => {
+            if (!window.pollingEnabled) return;
             loadPhaseStatus();
             loadPerformance();
             loadStrategyPerformance();

@@ -148,6 +148,10 @@
                 </ul>
                 <div class="d-flex align-items-center">
                     <span class="badge bg-secondary me-2">Shadow Mode</span>
+                    <div class="form-check form-switch me-3 mb-0" title="Toggle auto-refresh polling">
+                        <input class="form-check-input" type="checkbox" id="polling-toggle" checked>
+                        <label class="form-check-label small text-muted" for="polling-toggle" id="polling-label">Live</label>
+                    </div>
                     <span id="health-status"
                           hx-get="/health"
                           hx-trigger="load, every 30s"
@@ -175,6 +179,36 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 
     <script>
+        // --- Global Polling Kill Switch ---
+        window.pollingEnabled = localStorage.getItem('pollingEnabled') !== 'false';
+
+        const pollingToggle = document.getElementById('polling-toggle');
+        const pollingLabel = document.getElementById('polling-label');
+
+        pollingToggle.checked = window.pollingEnabled;
+        pollingLabel.textContent = window.pollingEnabled ? 'Live' : 'Paused';
+        pollingLabel.classList.toggle('text-warning', !window.pollingEnabled);
+        pollingLabel.classList.toggle('text-muted', window.pollingEnabled);
+
+        pollingToggle.addEventListener('change', function() {
+            window.pollingEnabled = this.checked;
+            localStorage.setItem('pollingEnabled', this.checked);
+            pollingLabel.textContent = this.checked ? 'Live' : 'Paused';
+            pollingLabel.classList.toggle('text-warning', !this.checked);
+            pollingLabel.classList.toggle('text-muted', this.checked);
+        });
+
+        // Block HTMX periodic polling when paused (allow user-triggered requests like clicks)
+        document.body.addEventListener('htmx:beforeRequest', function(evt) {
+            if (!window.pollingEnabled) {
+                const elt = evt.detail.elt;
+                const trigger = elt.getAttribute('hx-trigger') || '';
+                if (trigger.includes('every')) {
+                    evt.preventDefault();
+                }
+            }
+        });
+
         // Health status handler
         htmx.on('#health-status', 'htmx:afterRequest', function(evt) {
             const status = JSON.parse(evt.detail.xhr.responseText);

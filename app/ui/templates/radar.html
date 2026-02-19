@@ -158,7 +158,7 @@
     // Filter button
     document.getElementById('apply-filters').addEventListener('click', loadRadarData);
 
-    // Auto-refresh every 60 seconds
-    setInterval(loadRadarData, 60000);
+    // Auto-refresh every 60 seconds (respects kill switch)
+    setInterval(() => { if (window.pollingEnabled) loadRadarData(); }, 60000);
 </script>
 {% endblock %}

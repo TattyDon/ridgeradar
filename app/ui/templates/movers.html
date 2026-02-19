@@ -202,8 +202,8 @@
         document.getElementById('min-change').addEventListener('change', loadAllData);
         document.getElementById('hours-ahead').addEventListener('change', loadAllData);
 
-        // Auto-refresh every 2 minutes
-        setInterval(loadAllData, 120000);
+        // Auto-refresh every 2 minutes (respects kill switch)
+        setInterval(() => { if (window.pollingEnabled) loadAllData(); }, 120000);
     });
 
     async function loadAllData() {
